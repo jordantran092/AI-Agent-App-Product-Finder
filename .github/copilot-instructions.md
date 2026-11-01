@@ -1,0 +1,1 @@
+The system design lives in docs/design.md. Treat it as the source of truth. Before implementing a feature, read the relevant section. If code and the design disagree, flag it rather than guessing.
