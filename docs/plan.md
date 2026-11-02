@@ -1,36 +1,68 @@
+## Java implementation plan
 
-## Proposed Java implementation plan
+This plan follows the decisions recorded in [design.md](./design.md). The repository currently has no Java or frontend build configuration; this is a greenfield implementation plan. No code has been written.
 
-I read `docs/design.md`. It defines 10 features, 16 use cases, the core classes and design patterns, and 10 sequence diagrams. I found no existing Java source or build configuration, so this is a greenfield plan; **no code has been written**.
+### Architecture
 
-### Proposed foundation
+- **Backend:** Java modular monolith, Spring Boot REST API, and Maven. Keep domain rules in application services so both API and CLI clients use the same behavior.
+- **Frontend:** React application for chat, product details, saved lists, shared lists, and settings. Treat UI components as API clients, not as the owners of business rules.
+- **Persistence:** Local PostgreSQL only, with migrations and synthetic catalog seed data. No hosted database or deployment work.
+- **Authentication:** Simple registration/login/logout backed by PostgreSQL users. Store a unique username and a secure password hash (for example, BCrypt), never a plaintext password. Protect registered-user routes; allow public read-only access to shared-list links. Use session-based authentication for the local React/API application.
+- **CLI:** Retain the designed Java CLI as another client of the same services; do not duplicate application logic.
 
-Use a **Java modular monolith** with **Spring Boot**, **Maven**, and a REST API. Keep the UI technology independent—the design specifies GUI interactions but not a frontend stack—and provide a Java CLI as a separate client. Use Spring Data JPA with PostgreSQL for persistent storage and H2 for fast tests; load the catalog from synthetic seed data, as the design specifies.
+Suggested project layout:
 
-Organize the Java code around:
+```text
+backend/
+  src/main/java/.../domain/
+  src/main/java/.../application/
+  src/main/java/.../infrastructure/
+  src/main/java/.../api/
+  src/main/resources/product-schemas/
+  src/main/resources/db/migration/
+frontend/
+  src/
+```
 
-- **Domain:** products, listings, retailers, reviews, saved lists and items, profiles, requirements, and chat sessions.
-- **Application services:** the design’s services and rules, including `AgentService`, `ProductMatcher`, and `PriceComparisonService`.
-- **Infrastructure:** database repositories and the DeepSeek HTTP integration.
-- **API and CLI:** thin adapters that call application services rather than duplicating business logic.
+### Product schemas and matching
 
-Use the specified patterns where they fit: `AgentService` as the facade; a `DeepSeekClient` adapter behind `LLMClient`; a retry decorator for transient model failures; a Spring-managed singleton HTTP client; and a cached review analyzer proxy.
+1. Define versioned JSON Schema product-spec schemas in `backend/src/main/resources/product-schemas/`, with a registry that loads and validates the schema for a product category.
+2. Design versioned schemas for smartphones, laptops, tablets, televisions, headphones, and clothing (tops, bottoms, and footwear). Include typed attributes, canonical units, validation rules, and required/optional distinctions. Provide representative synthetic catalog entries that conform to those schemas.
+3. Use the same category schema when extracting requirements and preparing candidate products for the model. Validate model-produced structured requirements before storing them in a chat session.
+4. Apply deterministic eligibility checks for explicit requirements and profile filters, then let the AI agent decide non-deterministically how to rank and tie-break eligible candidates. Do not implement fixed score weights or deterministic AI tie-break rules. Require the agent to explain its choice using the structured product attributes.
+5. Test schema validation, category-specific attributes, malformed model output, and that hard requirements/profile exclusions are not bypassed by ranking.
+
+### Review-analysis contract
+
+Use the shared `ReviewAnalyzer` facade with typed operations and distinct results:
+
+- `analyzeTrust(productId)` returns `ReviewTrustResult` containing the agent's concise, non-deterministic trust phrase; no numeric score or fixed label rubric is imposed.
+- `summarize(productId)` returns `ReviewSummaryResult` containing the product/review summary.
+- `CachedReviewAnalyzer` keys each result by product ID, analysis type (`TRUST` or `SUMMARY`), and an input fingerprint. Trust fingerprints cover reviews; summary fingerprints cover both product information and reviews. This prevents cross-type collisions and invalidates results when relevant content changes.
+- Keep “No reviews to check” as the no-review outcome for trust analysis. Do not mistake a cached result of the other analysis type for an empty or successful result.
 
 ### Implementation milestones
 
-1. **Set up the Java project and domain model.** Define entities, value objects, enums, repository contracts, schema migrations, and synthetic seed data. Model chat states explicitly (`GATHERING`, `CONFIRMING`, `SEARCHING`, `PRESENTING`).
-2. **Implement deterministic foundations.** Build profile validation, saved-list operations, product lookup, and price comparison. Filter unavailable, unpriced, or profile-excluded listings before selecting the lowest price.
-3. **Add the DeepSeek integration.** Implement request/response DTOs, JSON parsing, timeouts, configuration, and bounded retries. Keep provider-specific formats inside the adapter and API keys out of source control.
-4. **Build the agent workflow (F01–F03).** Extract requirements, show them for user confirmation, prevent searches before confirmation, rank candidate products, explain trade-offs, and offer buy/wait advice using price history when available.
-5. **Complete saved-product workflows (F04, F07, F10).** Add similar-model suggestions with user confirmation, profile settings, notes, duplicate handling, and removal behavior.
-6. **Add review analysis (F08–F09).** Analyze review trust and summarize product information/reviews. Cache results by content hash so changed reviews invalidate the cache and cached calls avoid unnecessary LLM requests.
-7. **Add sharing (F06).** Generate links only for non-empty lists, render shared lists read-only, and handle invalid or unavailable tokens.
-8. **Add client adapters and verify end-to-end flows.** Implement CLI commands against the same services as the API/UI. Test the main and alternative flows described in the sequence diagrams.
+1. **Bootstrap the project and domain.** Create the Maven/Spring Boot backend, React frontend, database migrations, core entities/value objects, repository interfaces, synthetic seed data, and explicit chat-state transitions (`GATHERING`, `CONFIRMING`, `SEARCHING`, `PRESENTING`).
+2. **Implement identity and persistence.** Add PostgreSQL-backed users, secure password hashing, registration/login/logout, authorization for registered-user operations, and local configuration. Add repository integration tests against PostgreSQL.
+3. **Implement product schemas and deterministic services.** Add versioned schemas/registry, schema validation, profile validation, product lookup, saved-list operations, and price comparison. Filter out-of-stock, unpriced, and profile-excluded listings before selecting the lowest price.
+4. **Add the DeepSeek adapter.** Implement typed request/response models, schema-guided prompts, response validation, timeouts, and bounded retry for transient failures. Keep provider JSON in `DeepSeekClient` and credentials in local environment/configuration, not source control.
+5. **Build agent search (F01–F03).** Extract category-specific requirements, return them for user confirmation, enforce the confirmation state before searching, rank eligible candidates non-deterministically against their structured specs, explain trade-offs, and offer buy/wait advice using history when present.
+6. **Complete saved-product workflows (F04, F07, F10).** Implement adding, duplicate detection, similar-model suggestions with user confirmation, product detail, profile settings, notes, and removal.
+7. **Implement review trust and summaries (F08–F09).** Add typed result objects and typed analyzer operations, content fingerprints, analysis-type-aware cache keys, model-generated trust phrases, summaries, and no-review handling.
+8. **Implement sharing (F06).** Generate links only for non-empty lists, render shared pages read-only, calculate current best prices, and handle invalid or deleted tokens.
+9. **Connect the React UI and CLI.** Wire each client to the API/services and implement the flows in the use cases and sequence diagrams without duplicating domain logic.
+10. **Verify end-to-end behavior.** Run backend unit/integration tests and frontend tests for the specified success, alternative, and error flows.
 
 ### Validation plan
 
-Add JUnit tests for domain rules and state transitions; integration tests for persistence and REST endpoints; and mocked DeepSeek tests for parsing, transient retries, and failure handling. Cover the design’s important alternatives: vague requirements, rejected suggestions, no matching products/listings, missing price history, no reviews, invalid settings, empty lists, and unavailable share links. Finish with end-to-end tests for the agent search, saved-product, review, and sharing workflows.
+- **Backend unit tests:** domain validation, state transitions, deterministic price filtering, schema validation, typed analysis results, cache-key separation/invalidation, and password hashing/auth behavior.
+- **Backend integration tests:** PostgreSQL repositories/migrations, authentication, saved-list operations, public shared-list access, and API error responses.
+- **DeepSeek adapter tests:** mock HTTP responses for valid and malformed JSON, transient errors, retry exhaustion, schema-conforming requirement extraction, candidate ranking explanations, and trust phrase/summary parsing.
+- **Frontend tests:** login/logout, confirmation before search, profile settings, saved-list CRUD, summary/trust display, and share-link behavior.
+- **Flow coverage:** vague requirements, rejected model suggestions, no candidate products, no eligible retailer listings, missing price history, no reviews, invalid settings, empty lists, invalid share tokens, and temporary DeepSeek failure.
+- **Local acceptance:** start PostgreSQL locally, run migrations and seed data, start the backend and React app, then exercise the principal workflows in-browser and through the CLI.
 
-### Decisions to resolve before implementation
+### Remaining implementation details
 
-The design doesn’t specify authentication details, the frontend technology, database deployment, product ranking/tie-breaking rules, or the fake-review scoring rubric. It also uses one `ReviewAnalyzer` concept for both trust labels and summaries; I recommend defining distinct result types and including the analysis type in the cache key so the two results cannot collide. These choices should be confirmed or documented before the affected milestones.
+The design decisions for authentication, UI, database location, candidate ranking, review phrasing, review-result/cache separation, and the initial product categories are resolved. Remaining setup details are Java/Spring Boot versions and local PostgreSQL connection settings. Extend the schema set when the synthetic catalog introduces additional categories.

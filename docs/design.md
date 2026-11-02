@@ -46,6 +46,8 @@ It requires a description of what the user wants, with constraints in natural la
 
 Structured requirements/attributes
 
+The requirements use a category-specific requirements schema derived from the structured product-spec schema for the identified product category. Schemas for common categories, including technology products and clothing, are maintained in the designated product-schema resources.
+
 - AI Involvement — Is the feature deterministic, AI-based, or hybrid?
 
 AI-based. The agent can handle interpreting natural requirements.
@@ -310,6 +312,32 @@ User clicks the saved notes button, they can read the displayed notes, type into
 
 ## Task 2: Design Your System Using UML
 
+### Implementation decisions
+
+- **Application:** Java backend exposing an API to a React frontend. The React application supplies the chat, product, saved-list, and settings views. The Java CLI can use the same application services.
+- **Authentication:** Provide simple registration, login, and logout, with users stored in PostgreSQL. Store unique usernames and password hashes; never store plaintext passwords. Use session-based authentication for the local React/API application. Authentication protects registered-user operations, while shared-list viewing remains public.
+- **Database:** Use a local PostgreSQL database and synthetic product/catalog data. The project has no deployment target.
+- **Product-spec schemas:** Keep versioned JSON Schemas in a designated `product-schemas/` resource directory. The initial schemas cover smartphones, laptops, tablets, televisions, headphones, and clothing (tops, bottoms, and footwear). Each schema specifies typed attributes, canonical units, validation rules, and which attributes are required or optional. The catalog and agent use the schema for the selected product category.
+- **Product ranking:** Apply deterministic eligibility checks for explicit requirements and profile filters first. The agent then non-deterministically ranks and tie-breaks eligible candidates using their category's structured schema. Do not prescribe a fixed weighted scoring or tie-breaking formula.
+- **Review analysis:** The agent chooses a concise, non-deterministic trust phrase based on the reviews (for example, “Trustworthy Reviews” or “Highly Suspicious Reviews”); the design does not impose a numeric score or fixed label rubric. Review trust results and product/review summaries have distinct result types. Cache keys include the analysis type and a fingerprint of all inputs used for that analysis, so different analyses cannot collide and changed inputs invalidate cached results.
+
+#### Initial product-spec schema coverage
+
+Every product has common identity and listing data, including its category, brand/model, condition, and retailer offers. Category schemas define the typed, category-specific attributes that can be used to express requirements and compare eligible candidates.
+
+| Category | Initial category-specific attributes |
+|---|---|
+| Smartphone | Display size and resolution, operating system, memory, storage capacity, battery capacity, connectivity |
+| Laptop | Display size and resolution, processor, memory, storage type and capacity, graphics, operating system |
+| Tablet | Display size and resolution, operating system, memory, storage capacity, connectivity, stylus support |
+| Television | Screen size, resolution, panel type, refresh rate, HDR support, smart-TV platform |
+| Headphones | Form factor, wired/wireless connectivity, noise cancellation, battery life, supported connection types |
+| Clothing tops | Garment type, size and size system, fit, material, color, sleeve style |
+| Clothing bottoms | Garment type, size and size system, waist, inseam, fit, material, color |
+| Footwear | Shoe type, size and size system, width, material, closure, intended use |
+
+Use explicit units for measurable values and preserve sizing systems for apparel and footwear rather than treating sizes as interchangeable. The product-spec schema describes product attributes; the agent's structured requirements use a category-specific requirements schema derived from those attributes and the shared requirement fields (category, maximum price, must-haves, nice-to-haves, excluded brands, and condition).
+
 ### 2.1 Class Diagram
 
 ```mermaid
@@ -341,6 +369,11 @@ classDiagram
     class SharedListPage {
         +displayList()
     }
+    class LoginPage {
+        +register(credentials)
+        +login(credentials)
+        +logout()
+    }
     class ChatController {
         +postMessage()
         +confirm()
@@ -357,6 +390,23 @@ classDiagram
         +share()
         +viewShared()
         +updateProfile()
+    }
+    class AuthController {
+        +login(credentials)
+        +logout()
+    }
+    class AuthService {
+        +register(credentials)
+        +authenticate(credentials)
+        +logout()
+    }
+    class UserRepository {
+        +findByUsername(username)
+        +save(user)
+    }
+    class User {
+        +username
+        +passwordHash
     }
     class AgentService {
         <<facade>>
@@ -418,6 +468,16 @@ classDiagram
         +findSimilar(name)
         +reviewsFor(productId)
     }
+    class ProductSpecSchemaRegistry {
+        +getSchema(category)
+        +requirementsSchema(category)
+        +validate(category, attributes)
+    }
+    class ProductSpecSchema {
+        +category
+        +version
+        +attributes
+    }
     class LLMClient {
         <<interface>>
         +complete(messages, options)
@@ -437,17 +497,40 @@ classDiagram
     }
     class ReviewAnalyzer {
         <<interface>>
-        +analyze(productId)
+        +analyzeTrust(productId) ReviewTrustResult
+        +summarize(productId) ReviewSummaryResult
     }
     class CachedReviewAnalyzer {
         <<proxy>>
-        +analyze(productId)
-        +reviewsHash(reviews)
-        +storeResult(hash, analysis)
+        +analyzeTrust(productId) ReviewTrustResult
+        +summarize(productId) ReviewSummaryResult
+        +cacheKey(type, productId, inputs) ReviewAnalysisCacheKey
+        +storeResult(key, result)
     }
     class LLMReviewAnalyzer {
-        +analyze(productId)
-        +buildPrompt(product, reviews)
+        +analyzeTrust(productId) ReviewTrustResult
+        +summarize(productId) ReviewSummaryResult
+        +buildTrustPrompt(reviews)
+        +buildSummaryPrompt(product, reviews)
+    }
+    class ReviewAnalysisType {
+        <<enumeration>>
+        TRUST
+        SUMMARY
+    }
+    class ReviewAnalysisResult {
+        <<interface>>
+    }
+    class ReviewTrustResult {
+        +trustPhrase
+    }
+    class ReviewSummaryResult {
+        +summary
+    }
+    class ReviewAnalysisCacheKey {
+        +productId
+        +analysisType
+        +contentFingerprint
     }
     class UserProfile {
         +budget
@@ -494,6 +577,7 @@ classDiagram
     }
     class DeepSeekAPI
     ChatView ..> ChatController : HTTP
+    LoginPage ..> AuthController : HTTP
     SettingsPage ..> SavedListController : HTTP
     ProductPage ..> ProductController : HTTP
     SavedListPage ..> SavedListController : HTTP
@@ -503,6 +587,11 @@ classDiagram
     ChatController --> AgentService
     ProductController --> ProductService
     SavedListController --> SavedListService
+    AuthController --> AuthService
+    AuthService --> UserRepository
+    UserRepository --> User
+    User "1" --> "1" UserProfile
+    User "1" --> "1" SavedList
     AgentService --> SessionStore
     AgentService --> ChatSession
     AgentService --> RequirementsExtractor
@@ -513,6 +602,7 @@ classDiagram
     ProductMatcher --> ProductRepository
     ProductMatcher --> PriceComparisonService
     ProductMatcher --> LLMClient
+    ProductMatcher --> ProductSpecSchemaRegistry : schema-guided ranking
     BuyWaitAdvisor --> PriceHistoryService
     BuyWaitAdvisor --> LLMClient
     ProductService --> ProductRepository
@@ -525,6 +615,8 @@ classDiagram
     PriceComparisonService --> ProductRepository
     PriceHistoryService --> ProductRepository
     ProfileService --> UserProfile
+    RequirementsExtractor --> ProductSpecSchemaRegistry : category schema
+    ProductSpecSchemaRegistry o--> ProductSpecSchema : loads versioned schemas
     RetryingLLMClient ..|> LLMClient
     DeepSeekClient ..|> LLMClient
     RetryingLLMClient o--> LLMClient : wraps
@@ -536,6 +628,11 @@ classDiagram
     CachedReviewAnalyzer o--> LLMReviewAnalyzer : cache miss
     CachedReviewAnalyzer --> ProductRepository : loads reviews
     LLMReviewAnalyzer --> LLMClient
+    ReviewTrustResult ..|> ReviewAnalysisResult
+    ReviewSummaryResult ..|> ReviewAnalysisResult
+    ReviewAnalysisCacheKey --> ReviewAnalysisType
+    CachedReviewAnalyzer --> ReviewAnalysisCacheKey : keys cache by
+    CachedReviewAnalyzer --> ReviewAnalysisResult : caches typed result
     SavedList "1" o-- "*" SavedItem
     SavedItem --> Product
     Product "1" o-- "*" Listing
@@ -571,25 +668,25 @@ Proxy
 
 - What design problem does the pattern address?
 
-It addresses the problem of recomputation when calling the LLM model to summarize the reviews of a product, by having a proxy cache if nothing has changed since it was stored. This controllers access to a real summarizer class.
+It avoids recomputing either review-trust analysis or product/review summaries when their relevant inputs have not changed. The proxy controls access to the real analyzer and keeps the two cached analysis types separate.
 
 - Which classes participate in the pattern? What role does each class play?
 
 ReviewAnalyzer (interface)
 
-Declares the capability to analyze some product by their id, for proxy and real class to provide implementations
+Declares typed operations for analyzing review trust and summarizing product/review information. Trust analysis returns `ReviewTrustResult`; summarization returns `ReviewSummaryResult`.
 
 CachedReviewAnalyzer (proxy)
 
-Gets the product's current reviews, and looks up a stored result. On a hit it returns the stored result from the DB without involving the LLM. On a miss it calls the real analyzer and returns that.
+Builds a cache key from the product ID, analysis type, and a fingerprint of the analysis inputs. On a hit it returns the correctly typed stored result without involving the LLM. On a miss it calls the real analyzer and caches its result. Trust-analysis and summary entries cannot collide; summary fingerprints include product information as well as reviews.
 
 LLMReviewAnalyzer (real analyzer)
 
-Builds the prompt from the product info and reviews, calls the LLM, on a cache miss.
+Builds a task-specific prompt and returns the corresponding typed trust-analysis or summary result on a cache miss.
 
 LLMClient (used by the real analyzer, which is not part of the proxy)
 
-The interface LLMReviewAnalyzer uses to talk to DeepSeek (with SharedLLMClient), where Deepseek generates the summary
+The interface LLMReviewAnalyzer uses to talk to DeepSeek (with SharedLLMClient) for trust phrases and summaries
 
 - Why is this pattern appropriate? What would be more difficult if the pattern were not used?
 
@@ -817,7 +914,7 @@ The system loads the chat history and the user's profile settings (related to UC
 
 The system builds a prompt and sends it to DeepSeek.
 
-DeepSeek returns the requirements as JSON.
+The system provides the category's structured product-spec schema and derived requirements schema in the prompt. DeepSeek returns requirements as JSON conforming to the requirements schema.
 
 The system processes the JSON into a Requirements object and stores it as pending in the session.
 
@@ -895,9 +992,9 @@ Included by UC01 after the user confirms (UC03)
 
 The system searches the DB for potential products using the requirements and profile filters.
 
-The system sends the candidates and requirements to DeepSeek.
+The system sends eligible candidates, requirements, and the applicable category schema to DeepSeek.
 
-DeepSeek ranks the candidates and returns the best fit with a trade off explanation. The system finds the best retailer price for that product (includes UC05).
+DeepSeek non-deterministically ranks schema-described candidates and returns the best fit with a trade-off explanation. No fixed weighting or tie-breaking formula is imposed. The system finds the best retailer price for that product (includes UC05).
 
 The session changes to PRESENTING.
 
@@ -1075,7 +1172,7 @@ Handle a incorrectly typed or unknown model name.
 **Trigger:**
  Included by UC07 when a product is added.
 **Main Success Scenario:**
- The system loads the product's reviews from all retailers. The system checks for a cached result for the same set of reviews. On a cache miss, the system sends the reviews to DeepSeek for analysis. DeepSeek returns a trust label e.g. "Trustworthy" or "Suspicious Reviews". The system stores the label on the saved item and caches the result.
+ The system loads the product's reviews from all retailers. The system checks for a cached `ReviewTrustResult` using a key that includes the product ID, `TRUST` analysis type, and review-content fingerprint. On a cache miss, the system sends the reviews to DeepSeek for analysis. DeepSeek chooses a concise trust phrase, for example "Trustworthy Reviews" or "Highly Suspicious Reviews"; no fixed label rubric or numeric score is required. The system stores the phrase on the saved item and caches the typed result.
 **Alternative/Exception Flows:**
  The product has no reviews, the label is set to "No reviews to check". A cached result is found, and it is used and DeepSeek is not called. DeepSeek returns a temporary error, the system retries the call automatically.
 **Postconditions:**
@@ -1137,11 +1234,11 @@ The product is discontinued and the system tells the user and removes it from th
 
 The system loads the product description and reviews.
 
-The system checks for a cached summary for the same specific set of reviews.
+The system checks for a cached `ReviewSummaryResult` using a key that includes the product ID, `SUMMARY` analysis type, and fingerprints of the product information and reviews.
 
 On a cache miss, the system sends the data to DeepSeek.
 
-DeepSeek returns a summary.
+DeepSeek returns a product and review summary.
 
 The system displays and caches the summary.
 **Alternative/Exception Flows:**
@@ -1454,20 +1551,21 @@ sequenceDiagram
     end
     opt Product selected
         S->>S: Check duplicate and add SavedItem
-        S->>Proxy: analyze(productId)
+        S->>Proxy: analyzeTrust(productId)
         Proxy->>R: reviewsFor(productId)
         R-->>Proxy: Reviews
         alt No reviews
-            Proxy-->>S: “No reviews to check”
+            Proxy-->>S: ReviewTrustResult("No reviews to check")
         else Cached result
-            Proxy-->>S: Cached trust label
+            Proxy-->>S: Cached ReviewTrustResult (TRUST key)
         else Cache miss
-            Proxy->>Real: analyze(productId, reviews)
-            Real->>L: complete(messages, options)
-            L-->>Real: Trust label
-            Real-->>Proxy: Analysis
-            Proxy->>Proxy: Cache result by reviewsHash
-            Proxy-->>S: Trust label
+            Proxy->>Proxy: Build key(productId, TRUST, reviewsFingerprint)
+            Proxy->>Real: analyzeTrust(productId, reviews)
+            Real->>L: complete(trustPrompt, options)
+            L-->>Real: Trust phrase
+            Real-->>Proxy: ReviewTrustResult
+            Proxy->>Proxy: Cache typed result by TRUST key
+            Proxy-->>S: ReviewTrustResult
         end
         S-->>C: Saved item and trust label
         C-->>UI: Update list
@@ -1523,37 +1621,56 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     actor User as Registered User
-    participant UI as ProductPage
+    participant SavedList as SavedListService
+    participant ProductPage as ProductPage
     participant C as ProductController
     participant S as ProductService
     participant Proxy as CachedReviewAnalyzer
     participant Real as LLMReviewAnalyzer
     participant R as ProductRepository
     participant L as LLMClient
-    User->>UI: Select Summarize
-    UI->>C: reviewInsights(productId)
-    C->>S: reviewInsights(productId)
-    S->>Proxy: analyze(productId)
+    Note over SavedList,Proxy: F08: analyze review trust when a product is added
+    SavedList->>Proxy: analyzeTrust(productId)
     Proxy->>R: reviewsFor(productId)
     R-->>Proxy: Reviews
     alt No reviews
-        Proxy-->>S: No review insights
-        S-->>UI: No reviews available
-    else Cached result for these reviews
-        Proxy-->>S: Cached summary and trust analysis
-        S-->>UI: Display cached insights
-    else Cache miss
-        Proxy->>R: findById(productId)
-        R-->>Proxy: Product information
-        Proxy->>Real: analyze(product, reviews)
-        Real->>L: complete(messages, options)
-        L-->>Real: Summary and review analysis
-        Real-->>Proxy: Review insights
-        Proxy->>Proxy: Store result by reviewsHash
-        Proxy-->>S: Review insights
-        S-->>UI: Display summary and trust label
+        Proxy-->>SavedList: ReviewTrustResult("No reviews to check")
+    else Reviews available
+        Proxy->>Proxy: Build key(productId, TRUST, reviewsFingerprint)
+        alt Trust result cached
+            Proxy-->>SavedList: Cached ReviewTrustResult
+        else Trust cache miss
+            Proxy->>Real: analyzeTrust(productId, reviews)
+            Real->>L: complete(trustPrompt, options)
+            L-->>Real: Trust phrase
+            Real-->>Proxy: ReviewTrustResult
+            Proxy->>Proxy: Cache typed result by TRUST key
+            Proxy-->>SavedList: ReviewTrustResult
+        end
     end
-    UI-->>User: Show product/review summary and trust label
+    Note over User,S: F09: summarize product information and reviews
+    User->>ProductPage: Select Summarize
+    ProductPage->>C: reviewInsights(productId)
+    C->>S: reviewInsights(productId)
+    S->>Proxy: summarize(productId)
+    Proxy->>R: findById(productId)
+    R-->>Proxy: Product information
+    Proxy->>R: reviewsFor(productId)
+    R-->>Proxy: Reviews
+    Proxy->>Proxy: Build key(productId, SUMMARY, productAndReviewsFingerprint)
+    alt Summary result cached
+        Proxy-->>S: Cached ReviewSummaryResult
+    else Summary cache miss
+        Proxy->>Real: summarize(product, reviews)
+        Real->>L: complete(summaryPrompt, options)
+        L-->>Real: Product and review summary
+        Real-->>Proxy: ReviewSummaryResult
+        Proxy->>Proxy: Cache typed result by SUMMARY key
+        Proxy-->>S: ReviewSummaryResult
+    end
+    S-->>C: ReviewSummaryResult
+    C-->>ProductPage: Display summary
+    ProductPage-->>User: Show product/review summary
 ```
 #### SD7 — Share list and view shared list
 
@@ -1730,8 +1847,8 @@ sequenceDiagram
 | F05 | Compare prices among retailers for a product | Deterministic | UC05 Compare retailer prices; UC11 View product page | ProductPage, CommandLineInterface, ProductController, ProductService, ProfileService, PriceComparisonService, ProductRepository, Product, Listing, Retailer | findBestPrice(), bestPrice(), get(), bestListing(), findById(), price() | SD5, SD10; also used in SD2 and SD7 | None (deterministic) |
 | F06 | Share list to others | Deterministic | UC14 Share saved list; UC15 View shared list | SavedListPage, CommandLineInterface, SharedListPage, SavedListController, SavedListService, SavedList, PriceComparisonService | shareList(), share(), createShareLink(), isEmpty(), viewShared(), getSharedList(), bestListing() | SD7 | None (deterministic) |
 | F07 | User profile customization | Deterministic | UC16 Customize profile | SettingsPage, CommandLineInterface, SavedListController, ProfileService, UserProfile | saveSettings(), updateProfile(), update(), validate(), get(), settings() | SD8; profile read in SD1, SD2, SD3, SD5 | None (deterministic) |
-| F08 | Fake reviews detector | Hybrid | UC07 Add product; UC09 Detect fake reviews; UC11 View product page | SavedListService, ReviewAnalyzer, CachedReviewAnalyzer, LLMReviewAnalyzer, ProductRepository, Review, SavedItem, LLMClient | addProduct(), analyze(), reviewsFor(), reviewsHash(), storeResult(), buildPrompt(), parseJson() | SD4, SD6, SD9 | Proxy, Adapter, Decorator, Singleton |
-| F09 | Summarization of product info and reviews | Hybrid | UC12 Summarize product and reviews | ProductPage, CommandLineInterface, ProductController, ProductService, ReviewAnalyzer, CachedReviewAnalyzer, LLMReviewAnalyzer, ProductRepository, LLMClient | summarize(), reviewInsights(), analyze(), reviewsFor(), findById(), reviewsHash(), buildPrompt(), storeResult(), summary() | SD6, SD9 | Proxy, Adapter, Decorator, Singleton |
+| F08 | Fake reviews detector | Hybrid | UC07 Add product; UC09 Detect fake reviews; UC11 View product page | SavedListService, ReviewAnalyzer, CachedReviewAnalyzer, LLMReviewAnalyzer, ProductRepository, Review, ReviewTrustResult, SavedItem, LLMClient | addProduct(), analyzeTrust(), reviewsFor(), cacheKey(TRUST), storeResult(), buildTrustPrompt() | SD4, SD6, SD9 | Proxy, Adapter, Decorator, Singleton |
+| F09 | Summarization of product info and reviews | Hybrid | UC12 Summarize product and reviews | ProductPage, CommandLineInterface, ProductController, ProductService, ReviewAnalyzer, CachedReviewAnalyzer, LLMReviewAnalyzer, ProductRepository, ReviewSummaryResult, LLMClient | summarize(), reviewInsights(), summarize(), reviewsFor(), findById(), cacheKey(SUMMARY), buildSummaryPrompt(), storeResult() | SD6, SD9 | Proxy, Adapter, Decorator, Singleton |
 | F10 | User notes for a saved product | Deterministic | UC13 Edit product notes | ProductPage, CommandLineInterface, SavedListController, SavedListService, SavedItem | saveNotes(), saveNote(), note() | SD8 | None (deterministic) |
 
 ## Task 4: Explain How Each Feature Is Realized
@@ -2108,9 +2225,9 @@ SavedListService — starts the review check when a product is added.
 
 ReviewAnalyzer — the interface the service calls so it does not know about caching.
 
-CachedReviewAnalyzer — Proxy pattern here, returns a stored result when the reviews have not changed.
+CachedReviewAnalyzer — Proxy pattern here, returns a stored `ReviewTrustResult` when the reviews have not changed. Its cache key includes the `TRUST` analysis type.
 
-LLMReviewAnalyzer — the real analyzer, asks DeepSeek to see how trustworthy the reviews are.
+LLMReviewAnalyzer — the real analyzer, asks DeepSeek to choose a concise trust phrase based on the reviews.
 
 ProductRepository — pulls the product's reviews from all retailers.
 
@@ -2122,13 +2239,13 @@ SavedItem — stores the result trust label shown on the product page.
 
 SavedListService.addProduct()
 
-ReviewAnalyzer.analyze()
+ReviewAnalyzer.analyzeTrust()
 
 ProductRepository.reviewsFor()
 
-CachedReviewAnalyzer.reviewsHash()
+CachedReviewAnalyzer.cacheKey(TRUST, productId, reviewsFingerprint)
 
-LLMReviewAnalyzer.analyze()
+LLMReviewAnalyzer.analyzeTrust()
 
 LLMClient.complete()
 
@@ -2136,7 +2253,7 @@ CachedReviewAnalyzer.storeResult()
 
 - Execution:
 
-When a product is added, SavedListService calls analyze() on the ReviewAnalyzer interface which is implemented by the CachedReviewAnalyzer proxy. The proxy hashes the reviews from ProductRepository.reviewsFor() and returns a stored result if nothing changed. Otherwise LLMReviewAnalyzer asks DeepSeek for a trust label which the proxy saves with storeResult() and the SavedItem displays.
+When a product is added, SavedListService calls analyzeTrust() on the ReviewAnalyzer interface implemented by the CachedReviewAnalyzer proxy. The proxy fingerprints the reviews from ProductRepository.reviewsFor() and looks up a key containing the product ID and `TRUST` analysis type. On a cache miss, LLMReviewAnalyzer asks DeepSeek for a concise trust phrase; the proxy stores the typed `ReviewTrustResult`, and the SavedItem displays its phrase. Example phrases include "Trustworthy Reviews" and "Highly Suspicious Reviews"; the model chooses the phrase without a fixed numeric rubric.
 #### F09 — Summarization of Product Info and Reviews
 - Related Use Case:
 
@@ -2156,11 +2273,11 @@ ProductController — receives the request and delegates to ProductService.
 
 ProductService — calls the analyzer. The CLI summary command uses it too.
 
-ReviewAnalyzer — the shared interface, the same one used by F08.
+ReviewAnalyzer — the shared interface, with a typed `summarize()` operation returning `ReviewSummaryResult`, separate from F08's `analyzeTrust()` result.
 
-CachedReviewAnalyzer — the Proxy: avoids repeat LLM calls when nothing has changed.
+CachedReviewAnalyzer — the Proxy: avoids repeat LLM calls when none of the relevant product information or reviews have changed. The `SUMMARY` analysis type is part of its cache key.
 
-LLMReviewAnalyzer — builds the prompt from product info and reviews and calls DeepSeek.
+LLMReviewAnalyzer — builds a summary-specific prompt from product info and reviews and calls DeepSeek.
 
 ProductRepository — supplies the product description, listings and reviews.
 
@@ -2174,21 +2291,23 @@ ProductController.reviewInsights()
 
 ProductService.reviewInsights()
 
-ReviewAnalyzer.analyze()
+ReviewAnalyzer.summarize()
 
 ProductRepository.findById()
 
 ProductRepository.reviewsFor()
 
-LLMReviewAnalyzer.analyze()
+LLMReviewAnalyzer.summarize()
 
 LLMClient.complete()
 
-- CachedReviewAnalyzer.storeResult()
+CachedReviewAnalyzer.cacheKey(SUMMARY, productId, productAndReviewsFingerprint)
+
+CachedReviewAnalyzer.storeResult()
 
 Execution:
 
-- ProductPage.summarize() calls ProductController.reviewInsights(), which delegates to ProductService.reviewInsights() to call analyze() on the same ReviewAnalyzer used by F08. On a cache hit, CachedReviewAnalyzer returns the stored summary. On a miss, LLMReviewAnalyzer sends the product details and reviews to DeepSeek through LLMClient.complete() and the proxy stores the result.
+ProductPage.summarize() calls ProductController.reviewInsights(), which delegates to ProductService.reviewInsights() and then calls summarize() on ReviewAnalyzer. The proxy uses a `SUMMARY` cache key containing fingerprints of both the product information and reviews. On a hit, it returns the cached `ReviewSummaryResult`. On a miss, LLMReviewAnalyzer sends the product details and reviews to DeepSeek through LLMClient.complete(), returns the typed summary result, and the proxy caches it. The distinct result types and analysis-type key prevent a trust phrase from being returned as a summary or vice versa.
 #### F10 — User Notes for a Saved Product
 - Related Use Case:
 
