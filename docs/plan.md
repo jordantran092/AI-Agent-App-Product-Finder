@@ -4,7 +4,7 @@ This plan follows the decisions recorded in [design.md](./design.md). The reposi
 
 ### Architecture
 
-- **Backend:** Java modular monolith, Spring Boot REST API, and Maven. Keep domain rules in application services so both API and CLI clients use the same behavior.
+- **Backend:** Java 21 modular monolith, Spring Boot 4.1.2 REST API, and Maven; set `maven.compiler.release` to `21`. Boot 4.1.2 is the stable 4.1 release, chosen over the available 4.2 release candidate. Its [published parent POM](https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-parent/4.1.2/spring-boot-starter-parent-4.1.2.pom) targets Java 17, making Java 21 compatible. See the [4.1.2 release notes](https://github.com/spring-projects/spring-boot/releases/tag/v4.1.2).
 - **Frontend:** React application for chat, product details, saved lists, shared lists, and settings. Treat UI components as API clients, not as the owners of business rules.
 - **Persistence:** Local PostgreSQL only, with migrations and synthetic catalog seed data. No hosted database or deployment work.
 - **Authentication:** Simple registration/login/logout backed by PostgreSQL users. Store a unique username and a secure password hash (for example, BCrypt), never a plaintext password. Protect registered-user routes; allow public read-only access to shared-list links. Use session-based authentication for the local React/API application.
@@ -65,4 +65,4 @@ Use the shared `ReviewAnalyzer` facade with typed operations and distinct result
 
 ### Remaining implementation details
 
-The design decisions for authentication, UI, database location, candidate ranking, review phrasing, review-result/cache separation, and the initial product categories are resolved. Remaining setup details are Java/Spring Boot versions and local PostgreSQL connection settings. Extend the schema set when the synthetic catalog introduces additional categories.
+The design decisions for authentication, UI, database location, candidate ranking, review phrasing, review-result/cache separation, initial product categories, and Java/Spring Boot versions are resolved. The remaining setup detail is local PostgreSQL connection settings. Extend the schema set when the synthetic catalog introduces additional categories.

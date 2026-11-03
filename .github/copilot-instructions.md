@@ -1,1 +1,1 @@
-The system design lives in docs/design.md. Treat it as the source of truth. Before implementing a feature, read the relevant section. If code and the design disagree, flag it rather than guessing.
+The system design lives in docs/design.md and implementation plan in docs/plan.md. Treat it as the source of truth. Before implementing a feature, read the relevant section. If code and the design disagree, flag it rather than guessing.
