@@ -5,6 +5,9 @@ import com.eecs3311.productfinder.domain.catalog.ProductCondition;
 import com.eecs3311.productfinder.domain.savedlist.SavedList;
 import com.eecs3311.productfinder.domain.user.User;
 import com.eecs3311.productfinder.domain.user.UserProfile;
+import com.eecs3311.productfinder.application.ProfileService;
+import com.eecs3311.productfinder.application.ProductService;
+import com.eecs3311.productfinder.application.SavedListService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -24,6 +27,7 @@ import java.math.BigDecimal;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -78,6 +82,15 @@ class PostgresRepositoryIntegrationTests {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private ProductService productService;
+
+    @Autowired
+    private ProfileService profileService;
+
+    @Autowired
+    private SavedListService savedListService;
+
     @Test
     void persistsAndQueriesUsersAndSeededCatalogAgainstPostgres() {
         String username = "postgres-it-" + System.nanoTime();
@@ -88,7 +101,9 @@ class PostgresRepositoryIntegrationTests {
                 .extracting(User::getId)
                 .isEqualTo(savedUser.getId());
 
-        assertThat(productRepository.findByCategory(ProductCategory.SMARTPHONE)).hasSize(1);
+        for (ProductCategory category : ProductCategory.values()) {
+            assertThat(productService.findByCategory(category)).hasSize(1);
+        }
         var smartphone = productRepository.findByModelIgnoreCase("OR-15-128").orElseThrow();
         assertThat(smartphone.getAttributes()).containsEntry("storageGb", 128);
         var listings = listingRepository.findByProductId(smartphone.getId());
@@ -148,5 +163,32 @@ class PostgresRepositoryIntegrationTests {
         mockMvc.perform(post("/api/auth/logout").session(session).with(csrf()))
                 .andExpect(status().isNoContent());
         assertThat(session.isInvalid()).isTrue();
+    }
+
+    @Test
+    void profileAndSavedListServicesApplySettingsAndPriceEligibility() {
+        User user = userRepository.saveAndFlush(new User("services-it-" + System.nanoTime(),
+                "$2a$12$hashed-test-value"));
+        assertThat(savedListService.get(user.getId())).isEmpty();
+
+        SavedList savedList = savedListService.addProduct(user.getId(), "or-15-128");
+        long productId = savedList.getItems().getFirst().getProduct().getId();
+        assertThat(savedListService.get(user.getId())).isPresent();
+        assertThatIllegalStateException()
+                .isThrownBy(() -> savedListService.addProduct(user.getId(), "OR-15-128"))
+                .withMessageContaining("already");
+
+        profileService.update(user.getId(), new BigDecimal("800.00"), Set.of(" ORION "),
+                Set.of(ProductCondition.NEW));
+        assertThat(productService.bestPrice(user.getId(), productId)).isEmpty();
+
+        var settings = profileService.update(user.getId(), new BigDecimal("800.00"),
+                Set.of("Another Brand"), Set.of(ProductCondition.NEW));
+        assertThat(settings.excludedBrands()).containsExactly("another brand");
+        assertThat(productService.bestPrice(user.getId(), productId).orElseThrow().getPrice())
+                .isEqualByComparingTo("679.99");
+
+        savedListService.removeProduct(user.getId(), productId);
+        assertThat(savedListService.get(user.getId()).orElseThrow().isEmpty()).isTrue();
     }
 }

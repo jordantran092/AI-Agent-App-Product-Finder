@@ -21,6 +21,8 @@ Compose publishes PostgreSQL only on `127.0.0.1:5432`, persists its data in the 
 
 The backend reads `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` for its connection. `SESSION_TIMEOUT` controls the authenticated session lifetime (default `30m`); set `SESSION_COOKIE_SECURE=true` when serving over HTTPS. Keep the cookie secure flag disabled only for local HTTP development.
 
+DeepSeek calls are disabled until `DEEPSEEK_API_KEY` is set in the backend process environment. The backend defaults to the `deepseek-flash` model and `https://api.deepseek.com`. Optional settings include `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_CONNECT_TIMEOUT`, `DEEPSEEK_READ_TIMEOUT`, `DEEPSEEK_MAX_ATTEMPTS` (1–5 total attempts), `DEEPSEEK_INITIAL_BACKOFF`, and `DEEPSEEK_MAX_BACKOFF`. Do not commit API keys; structured responses are checked against the requested JSON Schema before they are returned to application callers.
+
 Stop PostgreSQL but keep its data with `docker compose down`. To intentionally remove the database and all persisted local data, run `docker compose down --volumes`.
 
 ## Backend

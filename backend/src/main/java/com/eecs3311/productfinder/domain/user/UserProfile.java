@@ -83,4 +83,14 @@ public class UserProfile {
     public Set<ProductCondition> getConditions() {
         return Set.copyOf(conditions);
     }
+
+    public void updateSettings(BigDecimal budget, Set<String> excludedBrands, Set<ProductCondition> conditions) {
+        if (budget != null && budget.signum() < 0) {
+            throw new IllegalArgumentException("budget must not be negative");
+        }
+        this.budget = budget;
+        this.excludedBrands = new LinkedHashSet<>(Objects.requireNonNull(excludedBrands,
+                "excludedBrands must not be null"));
+        this.conditions = new LinkedHashSet<>(Objects.requireNonNull(conditions, "conditions must not be null"));
+    }
 }

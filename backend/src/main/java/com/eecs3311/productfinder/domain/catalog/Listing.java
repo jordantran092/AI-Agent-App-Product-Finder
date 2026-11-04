@@ -59,6 +59,7 @@ public class Listing {
         this.price = price;
         this.condition = condition;
         this.inStock = inStock;
+        product.addListing(this);
     }
 
     public Long getId() {

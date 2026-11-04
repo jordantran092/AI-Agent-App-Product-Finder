@@ -125,4 +125,8 @@ public class Product {
     public List<Review> getReviews() {
         return List.copyOf(reviews);
     }
+
+    void addListing(Listing listing) {
+        listings.add(listing);
+    }
 }

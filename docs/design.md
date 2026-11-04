@@ -46,7 +46,7 @@ It requires a description of what the user wants, with constraints in natural la
 
 Structured requirements/attributes
 
-The requirements use a category-specific requirements schema derived from the structured product-spec schema for the identified product category. Schemas for common categories, including technology products and clothing, are maintained in the designated product-schema resources.
+The requirements use a category-specific requirements schema derived from the structured product-spec schema for the identified product category. The shared requirement fields are category, maximum price, must-haves, nice-to-haves, excluded brands, and condition. `Requirements` also contains an `attributes: Map<String, Object>` field for category-specific constraints (for example, `storageGb` for a smartphone). Validate this map against the selected category's product-spec schema before the extracted `Requirements` object is accepted or persisted. Schemas for common categories, including technology products and clothing, are maintained in the designated product-schema resources.
 
 - AI Involvement — Is the feature deterministic, AI-based, or hybrid?
 
@@ -336,7 +336,7 @@ Every product has common identity and listing data, including its category, bran
 | Clothing bottoms | Garment type, size and size system, waist, inseam, fit, material, color |
 | Footwear | Shoe type, size and size system, width, material, closure, intended use |
 
-Use explicit units for measurable values and preserve sizing systems for apparel and footwear rather than treating sizes as interchangeable. The product-spec schema describes product attributes; the agent's structured requirements use a category-specific requirements schema derived from those attributes and the shared requirement fields (category, maximum price, must-haves, nice-to-haves, excluded brands, and condition).
+Use explicit units for measurable values and preserve sizing systems for apparel and footwear rather than treating sizes as interchangeable. The product-spec schema describes product attributes; the agent's structured requirements use a category-specific requirements schema derived from those attributes and the shared requirement fields (category, maximum price, must-haves, nice-to-haves, excluded brands, and condition). The `Requirements` object carries category-specific constraints in `attributes: Map<String, Object>`; validate that map against the selected category's product-spec schema before accepting or persisting extracted requirements.
 
 ### 2.1 Class Diagram
 
@@ -433,6 +433,7 @@ classDiagram
         +niceToHaves
         +excludedBrands
         +condition
+        +attributes: Map~String, Object~
     }
     class ProductMatcher {
         +match(requirements)
@@ -914,9 +915,9 @@ The system loads the chat history and the user's profile settings (related to UC
 
 The system builds a prompt and sends it to DeepSeek.
 
-The system provides the category's structured product-spec schema and derived requirements schema in the prompt. DeepSeek returns requirements as JSON conforming to the requirements schema.
+The system provides the category's structured product-spec schema and derived requirements schema in the prompt. DeepSeek returns requirements as JSON conforming to the requirements schema, including an `attributes` object for category-specific constraints. The system validates those attributes against the selected category's product-spec schema before converting the response to `Requirements` and saving it as pending.
 
-The system processes the JSON into a Requirements object and stores it as pending in the session.
+The validated JSON is converted into a `Requirements` object and stored as pending in the session.
 
 The session moves to CONFIRMING.
 
@@ -1887,7 +1888,7 @@ RequirementsExtractor — builds the extraction prompt and turns DeepSeek's repl
 
 LLMClient — The interface for all AI feature calls. At runtime it is RetryingLLMClient (Decorator) wrapping DeepSeekClient (Adapter) which sends requests through SharedLLMClient (Singleton) to DeepSeek.
 
-   - Requirements — the structured result which involves category, max price, must haves, nice to haves, excluded brands, condition.
+   - Requirements — the structured result which involves category, max price, must haves, nice to haves, excluded brands, condition, and `attributes: Map<String, Object>` for category-specific constraints. Validate its attributes against the selected category's product-spec schema before accepting or persisting the result.
 
 - Important methods
 

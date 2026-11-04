@@ -15,6 +15,17 @@ spring:
   flyway:
     enabled: true
 
+product-finder:
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:}
+    model: ${DEEPSEEK_MODEL:deepseek-flash}
+    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+    connect-timeout: ${DEEPSEEK_CONNECT_TIMEOUT:5s}
+    read-timeout: ${DEEPSEEK_READ_TIMEOUT:30s}
+    max-attempts: ${DEEPSEEK_MAX_ATTEMPTS:3}
+    initial-backoff: ${DEEPSEEK_INITIAL_BACKOFF:250ms}
+    max-backoff: ${DEEPSEEK_MAX_BACKOFF:2s}
+
 server:
   port: ${SERVER_PORT:8080}
   servlet:
