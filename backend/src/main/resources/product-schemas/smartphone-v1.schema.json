@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/smartphone-v1.schema.json",
+  "title": "Smartphone specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "displaySizeInches",
+    "resolution",
+    "operatingSystem",
+    "memoryGb",
+    "storageGb",
+    "batteryMah",
+    "connectivity"
+  ],
+  "properties": {
+    "displaySizeInches": { "type": "number", "exclusiveMinimum": 0, "maximum": 20, "description": "Diagonal display size in inches." },
+    "resolution": { "type": "string", "pattern": "^[1-9][0-9]*x[1-9][0-9]*$" },
+    "operatingSystem": { "type": "string", "minLength": 1 },
+    "memoryGb": { "type": "integer", "minimum": 1 },
+    "storageGb": { "type": "integer", "minimum": 1 },
+    "batteryMah": { "type": "integer", "minimum": 1, "description": "Battery capacity in milliamp-hours." },
+    "connectivity": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true }
+  }
+}

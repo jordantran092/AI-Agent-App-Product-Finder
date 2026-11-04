@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/clothing-bottom-v1.schema.json",
+  "title": "Clothing bottoms specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["garmentType", "size", "sizeSystem", "waistInches", "inseamInches", "fit", "material", "color"],
+  "properties": {
+    "garmentType": { "type": "string", "minLength": 1 },
+    "size": { "type": "string", "minLength": 1 },
+    "sizeSystem": { "type": "string", "enum": ["US", "UK", "EU", "international"] },
+    "waistInches": { "type": "number", "exclusiveMinimum": 0, "description": "Garment waist measurement in inches." },
+    "inseamInches": { "type": "number", "exclusiveMinimum": 0, "description": "Garment inseam measurement in inches." },
+    "fit": { "type": "string", "minLength": 1 },
+    "material": { "type": "string", "minLength": 1 },
+    "color": { "type": "string", "minLength": 1 }
+  }
+}

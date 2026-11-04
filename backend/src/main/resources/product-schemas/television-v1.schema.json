@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/television-v1.schema.json",
+  "title": "Television specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["screenSizeInches", "resolution", "panelType", "refreshRateHz", "hdrSupport", "smartTvPlatform"],
+  "properties": {
+    "screenSizeInches": { "type": "number", "exclusiveMinimum": 0, "maximum": 150, "description": "Diagonal screen size in inches." },
+    "resolution": { "type": "string", "pattern": "^[1-9][0-9]*x[1-9][0-9]*$" },
+    "panelType": { "type": "string", "enum": ["LED", "QLED", "OLED", "Mini LED", "LCD"] },
+    "refreshRateHz": { "type": "integer", "minimum": 24, "maximum": 1000, "description": "Native refresh rate in hertz." },
+    "hdrSupport": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "smartTvPlatform": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/laptop-v1.schema.json",
+  "title": "Laptop specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["displaySizeInches", "resolution", "processor", "memoryGb", "storageType", "storageGb", "graphics", "operatingSystem"],
+  "properties": {
+    "displaySizeInches": { "type": "number", "exclusiveMinimum": 0, "maximum": 40, "description": "Diagonal display size in inches." },
+    "resolution": { "type": "string", "pattern": "^[1-9][0-9]*x[1-9][0-9]*$" },
+    "processor": { "type": "string", "minLength": 1 },
+    "memoryGb": { "type": "integer", "minimum": 1 },
+    "storageType": { "type": "string", "enum": ["SSD", "HDD", "eMMC"] },
+    "storageGb": { "type": "integer", "minimum": 1 },
+    "graphics": { "type": "string", "minLength": 1 },
+    "operatingSystem": { "type": "string", "minLength": 1 }
+  }
+}

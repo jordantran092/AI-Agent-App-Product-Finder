@@ -1,6 +1,6 @@
 ## Java implementation plan
 
-This plan follows the decisions recorded in [design.md](./design.md). The repository currently has no Java or frontend build configuration; this is a greenfield implementation plan. No code has been written.
+This plan follows the decisions recorded in [design.md](./design.md). The project scaffold and milestone 1 domain bootstrap are complete; the remaining milestones describe work that is still to be implemented.
 
 ### Architecture
 
@@ -43,9 +43,9 @@ Use the shared `ReviewAnalyzer` facade with typed operations and distinct result
 
 ### Implementation milestones
 
-1. **Bootstrap the project and domain.** Create the Maven/Spring Boot backend, React frontend, database migrations, core entities/value objects, repository interfaces, synthetic seed data, and explicit chat-state transitions (`GATHERING`, `CONFIRMING`, `SEARCHING`, `PRESENTING`).
-2. **Implement identity and persistence.** Add PostgreSQL-backed users, secure password hashing, registration/login/logout, authorization for registered-user operations, and local configuration. Add repository integration tests against PostgreSQL.
-3. **Implement product schemas and deterministic services.** Add versioned schemas/registry, schema validation, profile validation, product lookup, saved-list operations, and price comparison. Filter out-of-stock, unpriced, and profile-excluded listings before selecting the lowest price.
+1. **Complete — bootstrap the project and domain.** Set up the Maven/Spring Boot backend and React frontend; add catalog, user/profile, and saved-list entities, repository interfaces, a session-store port, PostgreSQL migrations with synthetic products across all eight initial categories, versioned category JSON Schemas, and guarded chat-state transitions (`GATHERING`, `CONFIRMING`, `SEARCHING`, `PRESENTING`). Backend tests pass against H2, and the migration/JPA startup was verified against local PostgreSQL.
+2. **Complete — implement identity and persistence.** Add PostgreSQL-backed registration, login and logout with BCrypt password hashes, session-based authorization, CSRF protection for state-changing requests, local session/database settings, and repository integration coverage against a disposable PostgreSQL 17 Testcontainers instance.
+3. **Implement product schemas and deterministic services.** Add the schema registry and schema validation for the versioned schemas created in milestone 1, profile validation, product lookup, saved-list operations, and price comparison. Filter out-of-stock, unpriced, and profile-excluded listings before selecting the lowest price.
 4. **Add the DeepSeek adapter.** Implement typed request/response models, schema-guided prompts, response validation, timeouts, and bounded retry for transient failures. Keep provider JSON in `DeepSeekClient` and credentials in local environment/configuration, not source control.
 5. **Build agent search (F01–F03).** Extract category-specific requirements, return them for user confirmation, enforce the confirmation state before searching, rank eligible candidates non-deterministically against their structured specs, explain trade-offs, and offer buy/wait advice using history when present.
 6. **Complete saved-product workflows (F04, F07, F10).** Implement adding, duplicate detection, similar-model suggestions with user confirmation, product detail, profile settings, notes, and removal.
@@ -65,4 +65,4 @@ Use the shared `ReviewAnalyzer` facade with typed operations and distinct result
 
 ### Remaining implementation details
 
-The design decisions for authentication, UI, database location, candidate ranking, review phrasing, review-result/cache separation, initial product categories, and Java/Spring Boot versions are resolved. The remaining setup detail is local PostgreSQL connection settings. Extend the schema set when the synthetic catalog introduces additional categories.
+The design decisions for authentication, UI, database location, candidate ranking, review phrasing, review-result/cache separation, initial product categories, and Java/Spring Boot versions are resolved. Local PostgreSQL settings are provided through `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`, with development defaults in the application configuration and Compose file. Extend the schema set when the synthetic catalog introduces additional categories.

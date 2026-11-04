@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/clothing-top-v1.schema.json",
+  "title": "Clothing tops specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["garmentType", "size", "sizeSystem", "fit", "material", "color", "sleeveStyle"],
+  "properties": {
+    "garmentType": { "type": "string", "minLength": 1 },
+    "size": { "type": "string", "minLength": 1 },
+    "sizeSystem": { "type": "string", "enum": ["US", "UK", "EU", "international"] },
+    "fit": { "type": "string", "minLength": 1 },
+    "material": { "type": "string", "minLength": 1 },
+    "color": { "type": "string", "minLength": 1 },
+    "sleeveStyle": { "type": "string", "minLength": 1 }
+  }
+}

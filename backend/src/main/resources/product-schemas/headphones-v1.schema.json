@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/headphones-v1.schema.json",
+  "title": "Headphones specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formFactor", "connectivity", "noiseCancellation", "batteryLifeHours", "supportedConnectionTypes"],
+  "properties": {
+    "formFactor": { "type": "string", "enum": ["over-ear", "on-ear", "in-ear", "open-ear"] },
+    "connectivity": { "type": "string", "enum": ["wired", "wireless", "wired-and-wireless"] },
+    "noiseCancellation": { "type": "boolean" },
+    "batteryLifeHours": { "type": "number", "minimum": 0, "description": "Rated wireless battery life in hours." },
+    "supportedConnectionTypes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true }
+  }
+}

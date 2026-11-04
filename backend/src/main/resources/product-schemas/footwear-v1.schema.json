@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://product-finder.local/product-schemas/footwear-v1.schema.json",
+  "title": "Footwear specifications v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["shoeType", "size", "sizeSystem", "width", "material", "closure", "intendedUse"],
+  "properties": {
+    "shoeType": { "type": "string", "minLength": 1 },
+    "size": { "type": "number", "exclusiveMinimum": 0, "description": "Numeric footwear size, interpreted using sizeSystem." },
+    "sizeSystem": { "type": "string", "enum": ["US", "UK", "EU"] },
+    "width": { "type": "string", "minLength": 1 },
+    "material": { "type": "string", "minLength": 1 },
+    "closure": { "type": "string", "minLength": 1 },
+    "intendedUse": { "type": "string", "minLength": 1 }
+  }
+}
