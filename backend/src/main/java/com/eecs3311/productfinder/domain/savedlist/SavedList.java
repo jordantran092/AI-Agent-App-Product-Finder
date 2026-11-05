@@ -68,6 +68,11 @@ public class SavedList {
         return items.isEmpty();
     }
 
+    public boolean containsProduct(long productId) {
+        return items.stream().anyMatch(item -> item.getProduct().getId() != null
+                && item.getProduct().getId() == productId);
+    }
+
     public void addItem(Product product) {
         Objects.requireNonNull(product, "product must not be null");
         boolean alreadySaved = items.stream().anyMatch(item -> sameProduct(item.getProduct(), product));

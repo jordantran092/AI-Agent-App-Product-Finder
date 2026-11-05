@@ -1,0 +1,140 @@
+package com.eecs3311.productfinder.application;
+
+import com.eecs3311.productfinder.domain.catalog.Product;
+import com.eecs3311.productfinder.domain.catalog.ProductCategory;
+import com.eecs3311.productfinder.domain.savedlist.SavedItem;
+import com.eecs3311.productfinder.domain.savedlist.SavedItemNotFoundException;
+import com.eecs3311.productfinder.application.review.ReviewAnalyzer;
+import com.eecs3311.productfinder.application.review.ReviewTrustResult;
+import com.eecs3311.productfinder.infrastructure.persistence.ProductRepository;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
+
+class SavedProductWorkflowServiceTests {
+
+    @Test
+    void removesUnsupportedControlCharactersAndReportsSanitization() {
+        SavedListService savedListService = mock(SavedListService.class);
+        SavedProductWorkflowService workflow = workflow(savedListService);
+        String note = "keep" + (char) 1 + " this";
+
+        NoteSaveResult result = workflow.saveNote(1, 2, note);
+
+        assertThat(result.note()).isEqualTo("keep this");
+        assertThat(result.sanitized()).isTrue();
+        verify(savedListService).saveNote(1, 2, "keep this");
+    }
+
+    @Test
+    void rejectsOversizedNotesBeforeTryingToPersist() {
+        SavedListService savedListService = mock(SavedListService.class);
+        SavedProductWorkflowService workflow = workflow(savedListService);
+
+        assertThatThrownBy(() -> workflow.saveNote(1, 2, "x".repeat(4001)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("4000");
+    }
+
+    @Test
+    void suggestionsDoNotAddUntilTheUserConfirms() throws Exception {
+        Product candidate = product(22L);
+        ProductRepository products = mock(ProductRepository.class);
+        when(products.findByModelIgnoreCase("OR-15-12B")).thenReturn(Optional.empty());
+        when(products.findById(22L)).thenReturn(Optional.of(candidate));
+        SavedListService savedListService = mock(SavedListService.class);
+        SavedItem savedItem = mock(SavedItem.class);
+        when(savedItem.getTrustLabel()).thenReturn(null, "Trustworthy Reviews");
+        when(savedListService.findSavedItem(5L, 22L))
+                .thenReturn(Optional.empty(), Optional.of(savedItem));
+        when(savedListService.updateTrustLabel(5L, 22L, "Trustworthy Reviews")).thenReturn(savedItem);
+        AgentService agentService = mock(AgentService.class);
+        when(agentService.suggestSimilar("OR-15-12B")).thenReturn(Optional.of(candidate));
+        ReviewAnalyzer reviewAnalyzer = mock(ReviewAnalyzer.class);
+        when(reviewAnalyzer.analyzeTrust(22L)).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
+        SavedProductWorkflowService workflow = new SavedProductWorkflowService(
+                products, savedListService, agentService, mock(ProductService.class),
+                reviewAnalyzer);
+
+        ProductAddResult suggestion = workflow.addOrSuggest(5, "OR-15-12B");
+
+        assertThat(suggestion.status()).isEqualTo(ProductAddStatus.SUGGESTION);
+        verify(savedListService, never()).addProductById(anyLong(), anyLong());
+        ProductAddResult accepted = workflow.confirmAdd(5, 22);
+        assertThat(accepted.status()).isEqualTo(ProductAddStatus.ADDED);
+        assertThat(accepted.trustLabel()).isEqualTo("Trustworthy Reviews");
+        verify(savedListService).addProductById(5, 22);
+        verify(savedListService).updateTrustLabel(5, 22, "Trustworthy Reviews");
+    }
+
+    @Test
+    void productDetailRemovesDiscontinuedSavedProducts() throws Exception {
+        Product discontinued = product(32L);
+        Field field = Product.class.getDeclaredField("discontinued");
+        field.setAccessible(true);
+        field.setBoolean(discontinued, true);
+
+        SavedListService savedListService = mock(SavedListService.class);
+        when(savedListService.findSavedItem(7L, 32L)).thenReturn(Optional.of(mock(SavedItem.class)));
+        ProductService productService = mock(ProductService.class);
+        ReviewAnalyzer reviewAnalyzer = mock(ReviewAnalyzer.class);
+        when(reviewAnalyzer.analyzeTrust(32L)).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
+        when(productService.findById(32L)).thenReturn(discontinued);
+        SavedProductWorkflowService workflow = new SavedProductWorkflowService(
+                mock(ProductRepository.class),
+                savedListService,
+                mock(AgentService.class),
+                productService,
+                reviewAnalyzer
+        );
+
+        assertThat(workflow.productPage(7, 32).discontinued()).isTrue();
+
+        verify(savedListService).removeProduct(7, 32);
+        verify(productService, never()).bestPrice(7, 32);
+    }
+
+    @Test
+    void productPageIsNotAvailableToUsersWhoHaveNotSavedTheProduct() {
+        SavedListService savedListService = mock(SavedListService.class);
+        when(savedListService.findSavedItem(9L, 44L)).thenReturn(Optional.empty());
+        ProductService productService = mock(ProductService.class);
+        SavedProductWorkflowService workflow = new SavedProductWorkflowService(
+                mock(ProductRepository.class),
+                savedListService,
+                mock(AgentService.class),
+                productService,
+                mock(ReviewAnalyzer.class)
+        );
+
+        assertThatThrownBy(() -> workflow.productPage(9, 44))
+                .isInstanceOf(SavedItemNotFoundException.class);
+        verifyNoInteractions(productService);
+    }
+
+    private static SavedProductWorkflowService workflow(SavedListService savedListService) {
+        return new SavedProductWorkflowService(
+                mock(ProductRepository.class),
+                savedListService,
+                mock(AgentService.class),
+                mock(ProductService.class),
+                mock(ReviewAnalyzer.class)
+        );
+    }
+
+    private static Product product(long id) throws Exception {
+        Product product = new Product(
+                "Orion 15", "Orion", "OR-15-128", ProductCategory.SMARTPHONE, "test product", null, Map.of());
+        Field field = Product.class.getDeclaredField("id");
+        field.setAccessible(true);
+        field.set(product, id);
+        return product;
+    }
+}

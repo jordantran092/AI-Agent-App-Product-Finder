@@ -8,5 +8,7 @@ public interface SessionStore {
 
     Optional<ChatSession> load(long userId);
 
+    ChatSession getOrCreate(long userId);
+
     ChatSession save(ChatSession session);
 }

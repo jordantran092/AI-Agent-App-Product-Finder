@@ -1,14 +1,16 @@
 package com.eecs3311.productfinder.application.llm;
 
 import com.eecs3311.productfinder.infrastructure.llm.DeepSeekProperties;
-import com.eecs3311.productfinder.infrastructure.llm.DeepSeekClient;
-import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Primary;
+import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.Objects;
 
 @Component
+@Primary
 public class RetryingLLMClient implements LLMClient {
 
     private final LLMClient delegate;
@@ -18,7 +20,7 @@ public class RetryingLLMClient implements LLMClient {
 
     @Autowired
     public RetryingLLMClient(
-            DeepSeekClient delegate,
+            @Qualifier("deepSeekClient") LLMClient delegate,
             DeepSeekProperties properties
     ) {
         this(delegate, properties.maxAttempts(), properties.initialBackoff(), properties.maxBackoff());

@@ -1,7 +1,10 @@
 package com.eecs3311.productfinder.application;
 
 import com.eecs3311.productfinder.domain.catalog.Product;
+import com.eecs3311.productfinder.domain.catalog.ProductNotFoundException;
+import com.eecs3311.productfinder.domain.savedlist.SavedItem;
 import com.eecs3311.productfinder.domain.savedlist.SavedList;
+import com.eecs3311.productfinder.domain.savedlist.SavedItemNotFoundException;
 import com.eecs3311.productfinder.domain.user.User;
 import com.eecs3311.productfinder.infrastructure.persistence.ProductRepository;
 import com.eecs3311.productfinder.infrastructure.persistence.SavedListRepository;
@@ -42,10 +45,50 @@ public class SavedListService {
     }
 
     @Transactional
+    public SavedList addProductById(long userId, long productId) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException(productId));
+        SavedList savedList = findOrCreate(userId);
+        savedList.addItem(product);
+        return savedListRepository.saveAndFlush(savedList);
+    }
+
+    @Transactional
+    public SavedItem saveNote(long userId, long productId, String note) {
+        SavedItem item = findSavedItem(userId, productId)
+                .orElseThrow(() -> new SavedItemNotFoundException(productId));
+        item.updateNote(note);
+        savedListRepository.flush();
+        return item;
+    }
+
+    @Transactional
+    public SavedItem updateTrustLabel(long userId, long productId, String trustLabel) {
+        SavedItem item = findSavedItem(userId, productId)
+                .orElseThrow(() -> new SavedItemNotFoundException(productId));
+        item.setTrustLabel(trustLabel);
+        savedListRepository.flush();
+        return item;
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<SavedItem> findSavedItem(long userId, long productId) {
+        return savedListRepository.findByUserId(userId)
+                .flatMap(savedList -> savedList.getItems().stream()
+                        .filter(item -> item.getProduct().getId() != null
+                                && item.getProduct().getId() == productId)
+                        .findFirst());
+    }
+
+    @Transactional
     public void removeProduct(long userId, long productId) {
         SavedList savedList = savedListRepository.findByUserId(userId)
-                .orElseThrow(() -> new IllegalArgumentException("Saved list not found for user: " + userId));
-        savedList.removeItem(productId);
+                .orElseThrow(() -> new SavedItemNotFoundException(productId));
+        try {
+            savedList.removeItem(productId);
+        } catch (IllegalArgumentException exception) {
+            throw new SavedItemNotFoundException(productId);
+        }
         savedListRepository.saveAndFlush(savedList);
     }
 

@@ -4,6 +4,7 @@ import com.eecs3311.productfinder.domain.catalog.ProductCondition;
 import com.eecs3311.productfinder.domain.user.ProfileValidationException;
 import com.eecs3311.productfinder.domain.user.User;
 import com.eecs3311.productfinder.domain.user.UserProfile;
+import com.eecs3311.productfinder.infrastructure.persistence.ProductRepository;
 import com.eecs3311.productfinder.infrastructure.persistence.UserProfileRepository;
 import com.eecs3311.productfinder.infrastructure.persistence.UserRepository;
 import org.springframework.stereotype.Service;
@@ -22,10 +23,13 @@ public class ProfileService {
 
     private final UserRepository userRepository;
     private final UserProfileRepository profileRepository;
+    private final ProductRepository productRepository;
 
-    public ProfileService(UserRepository userRepository, UserProfileRepository profileRepository) {
+    public ProfileService(UserRepository userRepository, UserProfileRepository profileRepository,
+                          ProductRepository productRepository) {
         this.userRepository = userRepository;
         this.profileRepository = profileRepository;
+        this.productRepository = productRepository;
     }
 
     @Transactional(readOnly = true)
@@ -40,6 +44,14 @@ public class ProfileService {
     public ProfileSettings update(long userId, BigDecimal budget, Set<String> excludedBrands,
                                   Set<ProductCondition> conditions) {
         ProfileSettings settings = validate(budget, excludedBrands, conditions);
+        List<String> unknownBrands = settings.excludedBrands().stream()
+                .filter(brand -> !productRepository.existsByBrandIgnoreCase(brand))
+                .toList();
+        if (!unknownBrands.isEmpty()) {
+            throw new ProfileValidationException(unknownBrands.stream()
+                    .map(brand -> "unknown excluded brand: " + brand)
+                    .toList());
+        }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
 

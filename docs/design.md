@@ -2338,4 +2338,4 @@ SavedListService.saveNote()
 
 - Execution:
 
-ProductPage.saveNotes() calls SavedListController.saveNote() which passes the text to SavedListService.saveNote(). The service removes unsupported characters and stores the text in SavedItem.note.
+ProductPage.saveNotes() calls SavedListController.saveNote() which passes the text to SavedListService.saveNote(). The service removes ISO control characters other than tabs and line breaks and stores the text in SavedItem.note. Notes are limited to 4,000 characters; the response returns the saved text and indicates whether sanitization changed it.

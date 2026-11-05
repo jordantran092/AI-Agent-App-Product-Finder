@@ -65,6 +65,9 @@ public class SavedItem {
     }
 
     public void updateNote(String note) {
+        if (note != null && note.length() > 4000) {
+            throw new IllegalArgumentException("note must not exceed 4000 characters");
+        }
         this.note = note;
     }
 

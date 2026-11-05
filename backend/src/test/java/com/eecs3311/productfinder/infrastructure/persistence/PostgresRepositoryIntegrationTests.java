@@ -8,7 +8,11 @@ import com.eecs3311.productfinder.domain.user.UserProfile;
 import com.eecs3311.productfinder.application.ProfileService;
 import com.eecs3311.productfinder.application.ProductService;
 import com.eecs3311.productfinder.application.SavedListService;
+import com.eecs3311.productfinder.application.review.ReviewAnalyzer;
+import com.eecs3311.productfinder.application.review.ReviewSummaryResult;
+import com.eecs3311.productfinder.application.review.ReviewTrustResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +21,7 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
@@ -28,9 +33,13 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -79,6 +88,9 @@ class PostgresRepositoryIntegrationTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoBean
+    private ReviewAnalyzer reviewAnalyzer;
+
     @Autowired
     private PasswordEncoder passwordEncoder;
 
@@ -90,6 +102,12 @@ class PostgresRepositoryIntegrationTests {
 
     @Autowired
     private SavedListService savedListService;
+
+    @BeforeEach
+    void stubReviewAnalysis() {
+        when(reviewAnalyzer.analyzeTrust(anyLong())).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
+        when(reviewAnalyzer.summarize(anyLong())).thenReturn(new ReviewSummaryResult("A capable everyday phone."));
+    }
 
     @Test
     void persistsAndQueriesUsersAndSeededCatalogAgainstPostgres() {
@@ -183,12 +201,88 @@ class PostgresRepositoryIntegrationTests {
         assertThat(productService.bestPrice(user.getId(), productId)).isEmpty();
 
         var settings = profileService.update(user.getId(), new BigDecimal("800.00"),
-                Set.of("Another Brand"), Set.of(ProductCondition.NEW));
-        assertThat(settings.excludedBrands()).containsExactly("another brand");
+                Set.of("Pine"), Set.of(ProductCondition.NEW));
+        assertThat(settings.excludedBrands()).containsExactly("pine");
         assertThat(productService.bestPrice(user.getId(), productId).orElseThrow().getPrice())
                 .isEqualByComparingTo("679.99");
 
         savedListService.removeProduct(user.getId(), productId);
         assertThat(savedListService.get(user.getId()).orElseThrow().isEmpty()).isTrue();
+    }
+
+    @Test
+    void savedProductApiSupportsDuplicateConfirmationNotesSettingsAndOwnerIsolation() throws Exception {
+        MockHttpSession ownerSession = createLoggedInUser("saved-api-owner-" + System.nanoTime());
+        long productId = productRepository.findByModelIgnoreCase("OR-15-128").orElseThrow().getId();
+
+        mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"modelName\":\"OR-15-128\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("ADDED"))
+                .andExpect(jsonPath("$.trustLabel").value("Trustworthy Reviews"));
+        mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"modelName\":\"or-15-128\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ALREADY_SAVED"));
+
+        mockMvc.perform(put("/api/saved-list/items/{productId}/note", productId).session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"keep\\u0001 this\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sanitized").value(true))
+                .andExpect(jsonPath("$.note").value("keep this"));
+
+        mockMvc.perform(put("/api/profile").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"budget\":1200.00,\"excludedBrands\":[\"Pine\"],\"conditions\":[\"NEW\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.excludedBrands[0]").value("pine"));
+        mockMvc.perform(put("/api/profile").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"budget\":1200.00,\"excludedBrands\":[\"Not A Brand\"],"
+                                + "\"conditions\":[\"NEW\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.containsString("unknown excluded brand")));
+
+        mockMvc.perform(get("/api/saved-list").session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1));
+        mockMvc.perform(get("/api/products/{productId}", productId).session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.product.model").value("OR-15-128"))
+                .andExpect(jsonPath("$.note").value("keep this"))
+                .andExpect(jsonPath("$.trustLabel").value("Trustworthy Reviews"))
+                .andExpect(jsonPath("$.bestOffer.price").value(679.99));
+        mockMvc.perform(post("/api/products/{productId}/summary", productId)
+                        .session(ownerSession).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary").value("A capable everyday phone."));
+
+        MockHttpSession otherSession = createLoggedInUser("saved-api-other-" + System.nanoTime());
+        mockMvc.perform(get("/api/products/{productId}", productId).session(otherSession))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/products/{productId}/summary", productId)
+                        .session(otherSession).with(csrf()))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/saved-list/items/{productId}", productId)
+                        .session(ownerSession).with(csrf()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/saved-list").session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0));
+    }
+
+    private MockHttpSession createLoggedInUser(String username) throws Exception {
+        String password = "integration-password";
+        userRepository.saveAndFlush(new User(username, passwordEncoder.encode(password)));
+        MvcResult result = mockMvc.perform(post("/api/auth/login").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
     }
 }

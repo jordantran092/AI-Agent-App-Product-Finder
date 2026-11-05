@@ -44,4 +44,27 @@ class PriceComparisonServiceTests {
         assertThat(service.bestListing(product,
                 new ProfileSettings(null, Set.of("example"), Set.of()))).isEmpty();
     }
+
+    @Test
+    void appliesProfileBudgetAndRequestConditionAsHardFilters() {
+        Product product = new Product("Phone", "Example", "EX-1", ProductCategory.SMARTPHONE, "Synthetic", null,
+                Map.of());
+        Listing withinBudget = new Listing(product, new Retailer("Within Budget"), new BigDecimal("200.00"),
+                ProductCondition.USED, true);
+        new Listing(product, new Retailer("Above Budget"), new BigDecimal("300.00"),
+                ProductCondition.NEW, true);
+
+        assertThat(service.bestListing(
+                product,
+                new ProfileSettings(new BigDecimal("250.00"), Set.of(), Set.of()),
+                new BigDecimal("250.00"),
+                ProductCondition.NEW
+        )).isEmpty();
+        assertThat(service.bestListing(
+                product,
+                new ProfileSettings(new BigDecimal("250.00"), Set.of(), Set.of()),
+                new BigDecimal("250.00"),
+                ProductCondition.USED
+        )).contains(withinBudget);
+    }
 }

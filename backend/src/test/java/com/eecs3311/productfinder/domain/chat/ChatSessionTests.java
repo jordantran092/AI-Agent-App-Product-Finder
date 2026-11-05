@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -33,6 +34,7 @@ class ChatSessionTests {
                 .isThrownBy(() -> session.transitionTo(ChatState.PRESENTING));
 
         session.transitionTo(ChatState.SEARCHING);
+        session.setLastMatch(new LastMatch(1, 2, "Matches the requested specifications."));
         session.transitionTo(ChatState.PRESENTING);
 
         assertThat(session.getState()).isEqualTo(ChatState.PRESENTING);
@@ -72,6 +74,24 @@ class ChatSessionTests {
         mustHaves.add("1 TB storage");
 
         assertThat(requirements.mustHaves()).containsExactly("16 GB memory");
+    }
+
+    @Test
+    void requirementsDefensivelyCopyCategoryAttributes() {
+        List<Object> connectivity = new ArrayList<>(List.of("5G"));
+        Requirements requirements = new Requirements(
+                ProductCategory.SMARTPHONE,
+                null,
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                Map.of("connectivity", connectivity)
+        );
+        connectivity.add("Wi-Fi");
+
+        assertThat(requirements.attributes().get("connectivity")).isEqualTo(List.of("5G"));
+        assertThat(requirements.attributes()).containsKey("connectivity");
     }
 
     private Requirements requirements() {

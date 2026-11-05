@@ -79,6 +79,15 @@ class ProductFinderApplicationTests {
             assertThat(schemaRegistry.validate(category, products.getFirst().getAttributes())).isEmpty();
         }
 
+        var candidates = productRepository.findWithListingsByCategory(ProductCategory.SMARTPHONE);
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.getFirst().getListings()).hasSize(2);
+        assertThat(candidates.getFirst().getListings().getFirst().getRetailer().getName()).isNotBlank();
+        var listing = listingRepository.findWithProductAndRetailerById(
+                candidates.getFirst().getListings().getFirst().getId()).orElseThrow();
+        assertThat(listing.getProduct().getCategory()).isEqualTo(ProductCategory.SMARTPHONE);
+        assertThat(listing.getRetailer().getName()).isNotBlank();
+
         assertThat(schemaRegistry.validate(ProductCategory.SMARTPHONE,
                 java.util.Map.of("storageGb", -1, "unexpected", true))).isNotEmpty();
     }

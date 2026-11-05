@@ -51,6 +51,41 @@ public class SchemaGuidedPromptBuilder {
                 """, conversation, schema);
     }
 
+    public LLMRequest requirementsExtraction(
+            List<LLMMessage> conversation,
+            String profileContext
+    ) {
+        Objects.requireNonNull(conversation, "conversation must not be null");
+        LLMOutputSchema schema = new LLMOutputSchema(
+                "category-requirements-extraction",
+                productSchemas.requirementsExtractionSchema()
+        );
+        String context = profileContext == null || profileContext.isBlank()
+                ? ""
+                : "\n\nThe user's saved profile settings remain active eligibility filters: " + profileContext
+                        + ". Do not override or weaken these settings.";
+        String instructions = """
+                Identify the product category and extract only requirements stated or clearly implied in the conversation.
+                If the category cannot be determined or a necessary detail is missing, return status FOLLOW_UP and ask one concise question.
+                Otherwise return status READY, use null for unknown maximum price or condition, and empty arrays/maps when no value is specified.
+                Do not invent category-specific attribute requirements. Put each explicit, verifiable category specification in attributes so the application can enforce it before ranking.
+                Keep mustHaves for concise user-facing restatements of non-negotiable criteria; if a non-negotiable criterion cannot be represented by the category schema, ask a follow-up question rather than silently dropping it.
+                Use profile settings only as context; do not treat them as explicit request constraints.
+                """ + context;
+        List<LLMMessage> messages = new ArrayList<>();
+        messages.add(new LLMMessage(LLMRole.SYSTEM, instructions
+                + "\n\nUse these versioned product specification schemas to identify valid category attributes:\n"
+                + productSchemas.allProductSchemasJson()
+                + "\n\nReturn exactly one JSON value conforming to the requirements extraction schema. "
+                + "Do not include markdown fences or additional text.\n" + schema.jsonSchema()));
+        messages.addAll(conversation);
+        return new LLMRequest(
+                messages,
+                new LLMOptions(null, null, LLMResponseFormat.JSON_OBJECT),
+                schema
+        );
+    }
+
     private String systemPrompt(
             ProductCategory category,
             String taskInstructions,

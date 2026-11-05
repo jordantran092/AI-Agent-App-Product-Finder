@@ -13,8 +13,8 @@ public enum ChatState {
     private static final Map<ChatState, Set<ChatState>> TRANSITIONS = Map.of(
             GATHERING, EnumSet.of(CONFIRMING),
             CONFIRMING, EnumSet.of(GATHERING, SEARCHING),
-            SEARCHING, EnumSet.of(GATHERING, PRESENTING),
-            PRESENTING, EnumSet.of(GATHERING)
+            SEARCHING, EnumSet.of(GATHERING, CONFIRMING, PRESENTING),
+            PRESENTING, EnumSet.of(GATHERING, SEARCHING)
     );
 
     public boolean canTransitionTo(ChatState target) {

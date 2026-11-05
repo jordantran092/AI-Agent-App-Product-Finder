@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 class ProfileServiceTests {
 
-    private final ProfileService profileService = new ProfileService(null, null);
+    private final ProfileService profileService = new ProfileService(null, null, null);
 
     @Test
     void normalizesExcludedBrandsAndRetainsAllowedConditions() {

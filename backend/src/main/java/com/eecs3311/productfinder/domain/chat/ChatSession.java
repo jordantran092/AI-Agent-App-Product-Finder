@@ -13,6 +13,7 @@ public class ChatSession {
     private final List<ChatMessage> history = new ArrayList<>();
     private ChatState state;
     private Requirements pendingRequirements;
+    private LastMatch lastMatch;
 
     private ChatSession(UUID id, long userId, ChatState state) {
         this.id = Objects.requireNonNull(id, "id must not be null");
@@ -43,6 +44,10 @@ public class ChatSession {
         return pendingRequirements;
     }
 
+    public LastMatch getLastMatch() {
+        return lastMatch;
+    }
+
     public List<ChatMessage> getHistory() {
         return List.copyOf(history);
     }
@@ -63,6 +68,11 @@ public class ChatSession {
         pendingRequirements = null;
     }
 
+    public void setLastMatch(LastMatch lastMatch) {
+        requireState(ChatState.SEARCHING);
+        this.lastMatch = Objects.requireNonNull(lastMatch, "lastMatch must not be null");
+    }
+
     public void requireState(ChatState expected) {
         if (state != expected) {
             throw new IllegalStateException("Expected chat state " + expected + " but was " + state);
@@ -75,12 +85,19 @@ public class ChatSession {
         if (target == ChatState.CONFIRMING && pendingRequirements == null) {
             throw new IllegalStateException("Requirements must be extracted before confirmation");
         }
+        if (target == ChatState.PRESENTING && lastMatch == null) {
+            throw new IllegalStateException("A product match must exist before presentation");
+        }
         if (target == ChatState.SEARCHING && pendingRequirements == null) {
             throw new IllegalStateException("Requirements must be confirmed before search");
+        }
+        if (target == ChatState.CONFIRMING && pendingRequirements == null) {
+            throw new IllegalStateException("Requirements must be confirmed before retrying search");
         }
         state = target;
         if (target == ChatState.GATHERING) {
             pendingRequirements = null;
+            lastMatch = null;
         }
     }
 }

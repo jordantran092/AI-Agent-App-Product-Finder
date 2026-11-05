@@ -14,7 +14,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Optional<Product> findByModelIgnoreCase(String model);
 
+    boolean existsByBrandIgnoreCase(String brand);
+
     List<Product> findByCategory(ProductCategory category);
+
+    @EntityGraph(attributePaths = {"listings", "listings.retailer"})
+    List<Product> findWithListingsByCategory(ProductCategory category);
 
     @EntityGraph(attributePaths = {"listings", "listings.retailer"})
     @Query("select p from Product p where p.id = :id")

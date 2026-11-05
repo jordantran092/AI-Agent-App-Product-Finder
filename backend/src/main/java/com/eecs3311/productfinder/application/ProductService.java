@@ -1,5 +1,7 @@
 package com.eecs3311.productfinder.application;
 
+import com.eecs3311.productfinder.application.review.ReviewAnalyzer;
+import com.eecs3311.productfinder.application.review.ReviewSummaryResult;
 import com.eecs3311.productfinder.domain.catalog.Listing;
 import com.eecs3311.productfinder.domain.catalog.Product;
 import com.eecs3311.productfinder.domain.catalog.ProductCategory;
@@ -19,14 +21,17 @@ public class ProductService {
     private final ProfileService profileService;
     private final PriceComparisonService priceComparisonService;
     private final ProductSpecSchemaRegistry schemaRegistry;
+    private final ReviewAnalyzer reviewAnalyzer;
 
     public ProductService(ProductRepository productRepository, ProfileService profileService,
                           PriceComparisonService priceComparisonService,
-                          ProductSpecSchemaRegistry schemaRegistry) {
+                          ProductSpecSchemaRegistry schemaRegistry,
+                          ReviewAnalyzer reviewAnalyzer) {
         this.productRepository = productRepository;
         this.profileService = profileService;
         this.priceComparisonService = priceComparisonService;
         this.schemaRegistry = schemaRegistry;
+        this.reviewAnalyzer = reviewAnalyzer;
     }
 
     @Transactional(readOnly = true)
@@ -61,6 +66,10 @@ public class ProductService {
         Product product = findById(productId);
         ProfileSettings profile = profileService.get(userId);
         return priceComparisonService.bestListing(product, profile);
+    }
+
+    public ReviewSummaryResult reviewInsights(long productId) {
+        return reviewAnalyzer.summarize(productId);
     }
 
     private void validateSpecs(Product product) {

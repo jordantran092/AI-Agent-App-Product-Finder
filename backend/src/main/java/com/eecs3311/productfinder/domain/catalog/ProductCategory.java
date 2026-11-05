@@ -19,4 +19,13 @@ public enum ProductCategory {
     public String schemaName() {
         return schemaName;
     }
+
+    public static ProductCategory fromSchemaName(String schemaName) {
+        for (ProductCategory category : values()) {
+            if (category.schemaName.equals(schemaName)) {
+                return category;
+            }
+        }
+        throw new IllegalArgumentException("Unknown product category schema: " + schemaName);
+    }
 }
