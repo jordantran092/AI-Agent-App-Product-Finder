@@ -1,77 +1,849 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import {
+  api,
+  ApiError,
+  type AddProductResult,
+  type AuthUser,
+  type ChatResponse,
+  type Product,
+  type ProductPage as ProductPageData,
+  type SavedItem,
+  type SharedProduct,
+} from "./api";
 
-type HealthStatus = "checking" | "up" | "unavailable";
+type View = "discover" | "saved" | "settings";
+type SessionState = "loading" | "signedOut" | "signedIn";
+const CONDITIONS = ["NEW", "REFURBISHED", "USED"];
+
+function sharedTokenFromPath(path: string): string | null {
+  const match = path.match(/^\/shared\/([^/]+)\/?$/);
+  return match ? match[1] : null;
+}
 
 export default function App() {
-  const [health, setHealth] = useState<HealthStatus>("checking");
+  const [path, setPath] = useState(window.location.pathname);
+  const [session, setSession] = useState<SessionState>("loading");
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [view, setView] = useState<View>("discover");
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [pageError, setPageError] = useState("");
 
   useEffect(() => {
-    const controller = new AbortController();
-
-    fetch("/actuator/health", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Backend returned ${response.status}`);
-        }
-        return response.json();
-      })
-      .then((result: { status?: string }) => {
-        setHealth(result.status === "UP" ? "up" : "unavailable");
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        setHealth("unavailable");
-      });
-
-    return () => controller.abort();
+    const handlePopState = () => {
+      setPath(window.location.pathname);
+      setSelectedProductId(null);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  useEffect(() => {
+    if (sharedTokenFromPath(path)) return;
+    let active = true;
+    api.me().then((currentUser) => {
+      if (!active) return;
+      setUser(currentUser);
+      setSession("signedIn");
+    }).catch((error: unknown) => {
+      if (!active) return;
+      if (error instanceof ApiError && error.status === 401) {
+        setSession("signedOut");
+      } else {
+        setPageError(messageFor(error));
+        setSession("signedOut");
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [path]);
+
+  const navigate = (nextPath: string) => {
+    window.history.pushState({}, "", nextPath);
+    setPath(window.location.pathname);
+    setSelectedProductId(null);
+    setPageError("");
+  };
+
+  const onAuthenticated = (currentUser: AuthUser) => {
+    setUser(currentUser);
+    setSession("signedIn");
+    setPageError("");
+  };
+
+  const signOut = async () => {
+    try {
+      await api.logout();
+      setUser(null);
+      setSession("signedOut");
+      setSelectedProductId(null);
+      setView("discover");
+    } catch (error) {
+      setPageError(messageFor(error));
+    }
+  };
+
+  const shareToken = sharedTokenFromPath(path);
+  if (shareToken) return <SharedPage token={shareToken} onHome={() => navigate("/")} />;
+  if (session === "loading") {
+    return <main className="centered-page"><p role="status">Connecting to Product Finder…</p></main>;
+  }
+  if (session === "signedOut" || !user) {
+    return (
+      <AuthPage
+        error={pageError}
+        onError={setPageError}
+        onAuthenticated={onAuthenticated}
+      />
+    );
+  }
+
   return (
-    <main className="shell">
+    <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Product Finder home">
-          <span className="brand-mark" aria-hidden="true">
-            PF
-          </span>
+        <button className="brand brand-button" onClick={() => {
+          setSelectedProductId(null);
+          setView("discover");
+        }} aria-label="Product Finder home">
+          <span className="brand-mark" aria-hidden="true">PF</span>
           <span>Product Finder</span>
-        </a>
-        <span className="environment">Local development</span>
+        </button>
+        <div className="account">
+          <span>{user.username}</span>
+          <button className="button button-quiet" onClick={signOut}>Log out</button>
+        </div>
       </header>
 
-      <section className="welcome" aria-labelledby="welcome-title">
-        <p className="eyebrow">PRODUCT DISCOVERY</p>
-        <h1 id="welcome-title">Find the right product for you.</h1>
-        <p className="intro">
-          Compare products and retailer prices, guided by what matters to you.
-        </p>
-        <div className="status" role="status">
-          <span className={`status-dot ${health}`} />
-          {health === "checking" && "Checking backend connection…"}
-          {health === "up" && "Backend is running"}
-          {health === "unavailable" &&
-            "Backend is unavailable. Start the Java service to connect."}
-        </div>
-      </section>
+      <nav className="primary-nav" aria-label="Main navigation">
+        <button className={view === "discover" && selectedProductId === null ? "active" : ""}
+          onClick={() => { setSelectedProductId(null); setView("discover"); }}>Discover</button>
+        <button className={view === "saved" || selectedProductId !== null ? "active" : ""}
+          onClick={() => { setSelectedProductId(null); setView("saved"); }}>Saved list</button>
+        <button className={view === "settings" ? "active" : ""}
+          onClick={() => { setSelectedProductId(null); setView("settings"); }}>Profile settings</button>
+      </nav>
 
-      <section className="feature-grid" aria-label="Planned application areas">
-        <article className="feature-card">
-          <span className="card-index">01</span>
-          <h2>AI product search</h2>
-          <p>Describe what you need and compare a shortlist that fits.</p>
-        </article>
-        <article className="feature-card">
-          <span className="card-index">02</span>
-          <h2>Price comparison</h2>
-          <p>See current offers across retailers for the same product.</p>
-        </article>
-        <article className="feature-card">
-          <span className="card-index">03</span>
-          <h2>Your saved list</h2>
-          <p>Keep track of products, notes, and review insights.</p>
-        </article>
+      {pageError && <ErrorBanner message={pageError} onDismiss={() => setPageError("")} />}
+
+      {selectedProductId !== null ? (
+        <ProductPage
+          productId={selectedProductId}
+          onBack={() => setSelectedProductId(null)}
+          onRemoved={() => setSelectedProductId(null)}
+          onError={setPageError}
+        />
+      ) : view === "discover" ? (
+        <ChatWorkspace
+          onError={setPageError}
+          onSaved={() => { setView("saved"); setPageError(""); }}
+        />
+      ) : view === "saved" ? (
+        <SavedList
+          onOpenProduct={setSelectedProductId}
+          onError={setPageError}
+        />
+      ) : (
+        <ProfileEditor onError={setPageError} />
+      )}
+    </main>
+  );
+}
+
+function AuthPage(props: {
+  error: string;
+  onError: (message: string) => void;
+  onAuthenticated: (user: AuthUser) => void;
+}) {
+  const [registering, setRegistering] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    props.onError("");
+    try {
+      const currentUser = registering
+        ? await api.register(username, password)
+        : await api.login(username, password);
+      if (registering) {
+        await api.login(username, password);
+      }
+      props.onAuthenticated(currentUser);
+    } catch (error) {
+      props.onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="auth-layout">
+      <section className="auth-aside">
+        <a className="brand" href="/">
+          <span className="brand-mark" aria-hidden="true">PF</span>
+          <span>Product Finder</span>
+        </a>
+        <p className="eyebrow">SHOP WITH CLARITY</p>
+        <h1>Find the right product for you.</h1>
+        <p>Compare products and retailer prices, guided by what matters to you.</p>
+      </section>
+      <section className="auth-card" aria-labelledby="auth-heading">
+        <p className="eyebrow">YOUR LOCAL PRODUCT ASSISTANT</p>
+        <h2 id="auth-heading">{registering ? "Create your account" : "Welcome back"}</h2>
+        <p className="muted">Sign in to search, save products, and manage your preferences.</p>
+        {props.error && <ErrorBanner message={props.error} onDismiss={() => props.onError("")} />}
+        <form className="stack" onSubmit={submit}>
+          <label>
+            Username
+            <input autoComplete="username" required minLength={3} maxLength={80}
+              value={username} onChange={(event) => setUsername(event.target.value)} />
+          </label>
+          <label>
+            Password
+            <input autoComplete={registering ? "new-password" : "current-password"}
+              type="password" required minLength={registering ? 12 : 1}
+              maxLength={72} value={password}
+              onChange={(event) => setPassword(event.target.value)} />
+            {registering && <span className="field-hint">Use at least 12 characters.</span>}
+          </label>
+          <button className="button button-primary" disabled={busy}>
+            {busy ? "Please wait…" : registering ? "Create account" : "Sign in"}
+          </button>
+        </form>
+        <p className="auth-switch">
+          {registering ? "Already have an account?" : "New to Product Finder?"}{" "}
+          <button className="text-button" onClick={() => {
+            setRegistering((wasRegistering) => !wasRegistering);
+            props.onError("");
+          }}>
+            {registering ? "Sign in" : "Create an account"}
+          </button>
+        </p>
       </section>
     </main>
   );
+}
+
+function ChatWorkspace({
+  onError,
+  onSaved,
+}: {
+  onError: (message: string) => void;
+  onSaved: () => void;
+}) {
+  const [chat, setChat] = useState<ChatResponse | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [urgency, setUrgency] = useState("I need it soon");
+  const [advice, setAdvice] = useState<{ decision: string; reason: string } | null>(null);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.chat().then((response) => {
+      if (active) setChat(response);
+    }).catch((error: unknown) => {
+      if (active) onError(messageFor(error));
+    });
+    return () => { active = false; };
+  }, [onError]);
+
+  const run = async (action: () => Promise<ChatResponse>) => {
+    setBusy(true);
+    onError("");
+    setNotice("");
+    setAdvice(null);
+    try {
+      setChat(await action());
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const send = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    const message = text.trim();
+    setText("");
+    await run(() => api.sendMessage(message));
+  };
+
+  const saveMatch = async (product: Pick<Product, "model">) => {
+    setBusy(true);
+    try {
+      const result = await api.addProduct(product.model);
+      setNotice(result.message);
+      if (result.status === "ADDED" || result.status === "ALREADY_SAVED") onSaved();
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestAdvice = async () => {
+    setBusy(true);
+    onError("");
+    try {
+      const result = await api.buyOrWait(urgency);
+      setAdvice({ decision: result.decision, reason: result.reason });
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="page-section">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">AI PRODUCT SEARCH</p>
+          <h1>What are you looking for?</h1>
+          <p className="muted">Describe your needs. Review the agent’s understanding before it searches.</p>
+        </div>
+        <span className="state-pill">{chat?.state ?? "CONNECTING"}</span>
+      </div>
+
+      <div className="workspace-grid">
+        <section className="card chat-card" aria-label="Product search chat">
+          <div className="chat-history" aria-live="polite">
+            {chat?.history.length ? chat.history.map((message, index) => (
+              <article className={`chat-message ${message.role.toLowerCase()}`} key={`${message.sentAt}-${index}`}>
+                <span className="message-author">{message.role === "USER" ? "You" : "Product Finder"}</span>
+                <p>{message.content}</p>
+              </article>
+            )) : <p className="empty-state">Start with a product category, what matters to you, and your budget.</p>}
+          </div>
+          {chat?.followUpQuestion && <p className="callout">{chat.followUpQuestion}</p>}
+          <form className="composer" onSubmit={send}>
+            <label className="visually-hidden" htmlFor="chat-message">Your product requirements</label>
+            <textarea id="chat-message" rows={3} maxLength={4000} value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder="For example: a phone under $700 with a good camera and at least 256 GB storage" />
+            <button className="button button-primary" disabled={busy || !text.trim()}>
+              {busy ? "Working…" : "Send"}
+            </button>
+          </form>
+        </section>
+
+        <aside className="stack">
+          {chat?.requirements && (
+            <section className="card">
+              <p className="eyebrow">REQUIREMENTS TO CONFIRM</p>
+              <h2>Does this look right?</h2>
+              <RequirementsSummary requirements={chat.requirements} />
+              {chat.state === "CONFIRMING" && (
+                <div className="button-row">
+                  <button className="button button-primary" disabled={busy}
+                    onClick={() => void run(api.confirmRequirements)}>Confirm and search</button>
+                  <button className="button button-secondary" disabled={busy}
+                    onClick={() => void run(api.cancelRequirements)}>Edit requirements</button>
+                </div>
+              )}
+            </section>
+          )}
+          {chat?.match && (
+            <section className="card result-card">
+              <p className="eyebrow">BEST MATCH</p>
+              <ProductSummary product={chat.match} />
+              <div className="offer-line">
+                <span>Best offer</span>
+                <strong>{chat.match.bestOffer.retailer} · {formatPrice(chat.match.bestOffer.price)}</strong>
+              </div>
+              <p>{chat.match.explanation}</p>
+              <div className="button-row">
+                <button className="button button-primary" disabled={busy}
+                  onClick={() => void saveMatch(chat.match!)}>Save product</button>
+                <label className="urgency-control">
+                  Need
+                  <select value={urgency} onChange={(event) => setUrgency(event.target.value)}>
+                    <option>I need it now</option>
+                    <option>I need it soon</option>
+                    <option>I can wait for a better price</option>
+                  </select>
+                </label>
+                <button className="button button-secondary" disabled={busy}
+                  onClick={() => void requestAdvice()}>Buy now or wait?</button>
+              </div>
+              {advice && <p className="callout"><strong>{advice.decision.replaceAll("_", " ")}</strong> — {advice.reason}</p>}
+            </section>
+          )}
+          {chat?.noMatchMessage && (
+            <section className="card">
+              <p>{chat.noMatchMessage}</p>
+              {chat.constraintsToRelax.length > 0 && (
+                <p className="muted">Consider relaxing: {chat.constraintsToRelax.join(", ")}</p>
+              )}
+              <p className="muted">Update your request in the chat to change these constraints.</p>
+            </section>
+          )}
+          {notice && <p role="status" className="success-banner">{notice}</p>}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function RequirementsSummary({ requirements }: { requirements: NonNullable<ChatResponse["requirements"]> }) {
+  return (
+    <dl className="requirements-list">
+      <div><dt>Category</dt><dd>{humanize(requirements.category)}</dd></div>
+      {requirements.maxPrice !== null && <div><dt>Maximum price</dt><dd>{formatPrice(requirements.maxPrice)}</dd></div>}
+      {requirements.condition && <div><dt>Condition</dt><dd>{humanize(requirements.condition)}</dd></div>}
+      <div><dt>Must have</dt><dd>{requirements.mustHaves.join(", ") || "No specific requirements"}</dd></div>
+      <div><dt>Nice to have</dt><dd>{requirements.niceToHaves.join(", ") || "None"}</dd></div>
+      <div><dt>Excluded brands</dt><dd>{requirements.excludedBrands.join(", ") || "None"}</dd></div>
+      {Object.keys(requirements.attributes).length > 0 && (
+        <div><dt>Category-specific details</dt><dd><code>{JSON.stringify(requirements.attributes)}</code></dd></div>
+      )}
+    </dl>
+  );
+}
+
+function SavedList({
+  onOpenProduct,
+  onError,
+}: {
+  onOpenProduct: (id: number) => void;
+  onError: (message: string) => void;
+}) {
+  const [items, setItems] = useState<SavedItem[]>([]);
+  const [model, setModel] = useState("");
+  const [suggestion, setSuggestion] = useState<AddProductResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
+
+  const refresh = async () => {
+    const result = await api.savedList();
+    setItems(result.items);
+  };
+  useEffect(() => {
+    let active = true;
+    api.savedList().then((result) => {
+      if (active) setItems(result.items);
+    }).catch((error: unknown) => {
+      if (active) onError(messageFor(error));
+    });
+    return () => { active = false; };
+  }, [onError]);
+
+  const add = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setNotice("");
+    setSuggestion(null);
+    try {
+      const result = await api.addProduct(model.trim());
+      setNotice(result.message);
+      setModel("");
+      if (result.status === "SUGGESTION") setSuggestion(result);
+      else if (result.status === "ADDED" || result.status === "ALREADY_SAVED") await refresh();
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmSuggestion = async () => {
+    if (!suggestion?.product) return;
+    setBusy(true);
+    try {
+      const result = await api.confirmSuggestedProduct(suggestion.product.id);
+      setNotice(result.message);
+      setSuggestion(null);
+      await refresh();
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (item: SavedItem) => {
+    if (!window.confirm(`Remove ${item.product.name} from your saved list?`)) return;
+    setBusy(true);
+    try {
+      await api.removeProduct(item.product.id);
+      await refresh();
+      setNotice(`${item.product.name} was removed.`);
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createShareLink = async () => {
+    setBusy(true);
+    setNotice("");
+    try {
+      const result = await api.shareList();
+      setShareUrl(result.shareUrl);
+      try {
+        await navigator.clipboard.writeText(result.shareUrl);
+        setNotice("Share link copied to the clipboard.");
+      } catch {
+        setNotice("Share link created. Clipboard access is unavailable; copy the link below.");
+      }
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="page-section">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">YOUR COLLECTION</p>
+          <h1>Saved products</h1>
+          <p className="muted">Track products, review insights, and retailer offers in one place.</p>
+        </div>
+        <button className="button button-secondary" disabled={busy || items.length === 0}
+          onClick={() => void createShareLink()}>Share list</button>
+      </div>
+      <form className="add-product-form card" onSubmit={add}>
+        <label htmlFor="model-name">Add a product by model</label>
+        <div className="inline-form">
+          <input id="model-name" value={model} maxLength={200}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="e.g. OR-15-128" required />
+          <button className="button button-primary" disabled={busy || !model.trim()}>Add product</button>
+        </div>
+      </form>
+      {notice && <p role="status" className="success-banner">{notice}</p>}
+      {shareUrl && (
+        <div className="share-callout">
+          <a href={shareUrl}>{shareUrl}</a>
+          <span>Anyone with this link can view the list.</span>
+        </div>
+      )}
+      {suggestion?.product && (
+        <section className="suggestion-card card" aria-label="Suggested product">
+          <div><p className="eyebrow">DID YOU MEAN?</p><ProductSummary product={suggestion.product} /></div>
+          <div className="button-row">
+            <button className="button button-primary" disabled={busy}
+              onClick={() => void confirmSuggestion()}>Yes, add it</button>
+            <button className="button button-secondary" onClick={() => setSuggestion(null)}>No</button>
+          </div>
+        </section>
+      )}
+      {items.length === 0 ? (
+        <div className="empty-panel"><h2>Your list is empty</h2><p>Add a product model to start tracking it.</p></div>
+      ) : (
+        <div className="saved-grid">
+          {items.map((item) => (
+            <article className="card saved-card" key={item.product.id}>
+              <button className="product-card-button" onClick={() => onOpenProduct(item.product.id)}>
+                <ProductSummary product={item.product} />
+              </button>
+              <div className="trust-label">{item.trustLabel ?? "Review analysis unavailable"}</div>
+              {item.note && <p className="note-preview">{item.note}</p>}
+              <div className="button-row">
+                <button className="button button-secondary" onClick={() => onOpenProduct(item.product.id)}>View details</button>
+                <button className="button button-quiet danger-text" disabled={busy}
+                  onClick={() => void remove(item)}>Remove</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProductSummary({ product }: {
+  product: Pick<Product, "name" | "brand" | "model" | "category" | "imageUrl">;
+}) {
+  return (
+    <div className="product-summary">
+      {product.imageUrl
+        ? <img src={product.imageUrl} alt="" className="product-image" />
+        : <div className="product-image image-placeholder" aria-hidden="true">{product.category.slice(0, 2)}</div>}
+      <div>
+        <p className="product-brand">{product.brand} · {humanize(product.category)}</p>
+        <h2>{product.name}</h2>
+        <p className="muted">Model {product.model}</p>
+      </div>
+    </div>
+  );
+}
+
+function ProductPage({
+  productId,
+  onBack,
+  onRemoved,
+  onError,
+}: {
+  productId: number;
+  onBack: () => void;
+  onRemoved: () => void;
+  onError: (message: string) => void;
+}) {
+  const [page, setPage] = useState<ProductPageData | null>(null);
+  const [note, setNote] = useState("");
+  const [summary, setSummary] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.productPage(productId).then((result) => {
+      if (!active) return;
+      setPage(result);
+      setNote(result.note ?? "");
+      if (result.discontinued) {
+        setNotice("This product has been discontinued and was removed from your saved list.");
+      }
+    }).catch((error: unknown) => {
+      if (active) onError(messageFor(error));
+    });
+    return () => { active = false; };
+  }, [productId, onError]);
+
+  const saveNote = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api.saveNote(productId, note);
+      setNote(result.note ?? "");
+      setNotice(result.message);
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const getSummary = async () => {
+    setBusy(true);
+    setSummary("");
+    try {
+      const result = await api.summarize(productId);
+      setSummary(result.summary);
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!page) return <section className="page-section"><p role="status">Loading product…</p></section>;
+  if (page.discontinued || !page.product) {
+    return <section className="page-section">
+      <button className="button button-quiet" onClick={onRemoved}>← Back to saved list</button>
+      <div className="empty-panel"><h1>Product unavailable</h1><p>{notice}</p></div>
+    </section>;
+  }
+  const product = page.product;
+  return (
+    <section className="page-section">
+      <button className="button button-quiet" onClick={onBack}>← Saved products</button>
+      <article className="card detail-card">
+        <ProductSummary product={product} />
+        <p>{product.description}</p>
+        <div className="offer-line">
+          <span>Best eligible offer</span>
+          <strong>{page.bestOffer
+            ? `${page.bestOffer.retailer} · ${formatPrice(page.bestOffer.price)} (${humanize(page.bestOffer.condition)})`
+            : "No retailer currently meets your settings"}</strong>
+        </div>
+        <div className="trust-label">Review trust: {page.trustLabel ?? "Not available"}</div>
+        <h2>Specifications</h2>
+        <dl className="spec-list">
+          {Object.entries(product.attributes).map(([key, value]) => (
+            <div key={key}><dt>{humanize(key)}</dt><dd>{displayValue(value)}</dd></div>
+          ))}
+        </dl>
+      </article>
+      <div className="detail-grid">
+        <section className="card">
+          <div className="section-title-row"><div><p className="eyebrow">REVIEW INSIGHTS</p><h2>Product summary</h2></div>
+            <button className="button button-secondary" disabled={busy} onClick={() => void getSummary()}>
+              {busy ? "Working…" : "Summarize"}
+            </button></div>
+          {summary ? <p className="summary-text">{summary}</p> : <p className="muted">Generate a concise summary of product information and reviews.</p>}
+        </section>
+        <form className="card stack" onSubmit={saveNote}>
+          <div><p className="eyebrow">PERSONAL REMINDER</p><h2>Notes</h2></div>
+          <label htmlFor="product-note">Your note</label>
+          <textarea id="product-note" rows={5} maxLength={4000} value={note}
+            onChange={(event) => setNote(event.target.value)} />
+          <button className="button button-primary" disabled={busy}>Save note</button>
+          {notice && <p role="status" className="muted">{notice}</p>}
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function ProfileEditor({ onError }: { onError: (message: string) => void }) {
+  const [budget, setBudget] = useState("");
+  const [excludedBrands, setExcludedBrands] = useState("");
+  const [conditions, setConditions] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.profile().then((settings) => {
+      if (!active) return;
+      setBudget(settings.budget === null ? "" : String(settings.budget));
+      setExcludedBrands(settings.excludedBrands.join(", "));
+      setConditions(settings.conditions);
+      setLoaded(true);
+    }).catch((error: unknown) => {
+      if (active) onError(messageFor(error));
+    });
+    return () => { active = false; };
+  }, [onError]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setNotice("");
+    try {
+      const numericBudget = budget.trim() === "" ? null : Number(budget);
+      if (numericBudget !== null && (!Number.isFinite(numericBudget) || numericBudget < 0)) {
+        throw new Error("Budget must be a non-negative number.");
+      }
+      const settings = await api.updateProfile({
+        budget: numericBudget,
+        excludedBrands: excludedBrands.split(",").map((brand) => brand.trim()).filter(Boolean),
+        conditions,
+      });
+      setBudget(settings.budget === null ? "" : String(settings.budget));
+      setExcludedBrands(settings.excludedBrands.join(", "));
+      setConditions(settings.conditions);
+      setNotice("Your preferences have been saved.");
+    } catch (error) {
+      onError(messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="page-section narrow-section">
+      <div className="page-heading">
+        <div><p className="eyebrow">PERSONALIZATION</p><h1>Profile settings</h1>
+          <p className="muted">These preferences filter offers and eligible products.</p></div>
+      </div>
+      <form className="card stack settings-form" onSubmit={save}>
+        <label>
+          Maximum budget
+          <span className="input-prefix"><span>$</span><input type="number" min="0" step="0.01"
+            value={budget} onChange={(event) => setBudget(event.target.value)} placeholder="No limit" /></span>
+        </label>
+        <label>
+          Excluded brands
+          <input value={excludedBrands} onChange={(event) => setExcludedBrands(event.target.value)}
+            placeholder="Comma-separated, e.g. Orion, Maple" />
+          <span className="field-hint">Brand names must exist in the product catalog.</span>
+        </label>
+        <fieldset>
+          <legend>Allowed conditions</legend>
+          <p className="field-hint">Leave all unchecked to allow every condition.</p>
+          <div className="checkbox-list">
+            {CONDITIONS.map((condition) => (
+              <label className="checkbox-label" key={condition}>
+                <input type="checkbox" checked={conditions.includes(condition)}
+                  onChange={(event) => setConditions((current) => event.target.checked
+                    ? [...current, condition]
+                    : current.filter((value) => value !== condition))} />
+                {humanize(condition)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <button className="button button-primary" disabled={busy || !loaded}>
+          {busy ? "Saving…" : "Save preferences"}
+        </button>
+        {notice && <p role="status" className="success-banner">{notice}</p>}
+      </form>
+    </section>
+  );
+}
+
+function SharedPage({ token, onHome }: { token: string; onHome: () => void }) {
+  const [items, setItems] = useState<SharedProduct[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    api.sharedList(token).then((result) => {
+      if (active) setItems(result.items);
+    }).catch((problem: unknown) => {
+      if (active) setError(messageFor(problem));
+    });
+    return () => { active = false; };
+  }, [token]);
+
+  return (
+    <main className="shared-layout">
+      <header className="topbar">
+        <a className="brand" href="/"><span className="brand-mark" aria-hidden="true">PF</span><span>Product Finder</span></a>
+        <span className="public-badge">Shared list · read only</span>
+      </header>
+      <section className="page-section">
+        <p className="eyebrow">A PRODUCT FINDER COLLECTION</p>
+        <h1>Shared products</h1>
+        <p className="muted">Current best retailer offers are shown below.</p>
+        {error && <div className="empty-panel"><h2>This list is unavailable</h2><p>{error}</p><button className="button button-secondary" onClick={onHome}>Go to Product Finder</button></div>}
+        {items === null && !error && <p role="status">Loading shared list…</p>}
+        {items && items.length === 0 && <div className="empty-panel"><h2>This list is empty</h2></div>}
+        {items && items.length > 0 && <div className="saved-grid shared-grid">
+          {items.map((item) => <SharedProductCard key={item.model} item={item} />)}
+        </div>}
+      </section>
+    </main>
+  );
+}
+
+function SharedProductCard({ item }: { item: SharedProduct }) {
+  return (
+    <article className="card shared-product-card">
+      <div className="product-summary">
+        {item.imageUrl
+          ? <img src={item.imageUrl} alt="" className="product-image" />
+          : <div className="product-image image-placeholder" aria-hidden="true">PF</div>}
+        <div><p className="product-brand">{item.brand}</p><h2>{item.name}</h2><p className="muted">Model {item.model}</p></div>
+      </div>
+      <div className="offer-line"><span>Best offer</span>
+        <strong>{item.price === null || item.retailer === null
+          ? "No current eligible offers"
+          : `${item.retailer} · ${formatPrice(item.price)}`}</strong>
+      </div>
+    </article>
+  );
+}
+
+function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return <div className="error-banner" role="alert"><span>{message}</span>
+    <button aria-label="Dismiss error" onClick={onDismiss}>×</button></div>;
+}
+
+function messageFor(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return "An unexpected error occurred. Please try again.";
+}
+
+function formatPrice(value: number): string {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
+}
+
+function humanize(value: string): string {
+  return value.toLowerCase().split(/[_\s]+/).map((part) => part ? part[0].toUpperCase() + part.slice(1) : "").join(" ");
+}
+
+function displayValue(value: unknown): string {
+  return value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
 }

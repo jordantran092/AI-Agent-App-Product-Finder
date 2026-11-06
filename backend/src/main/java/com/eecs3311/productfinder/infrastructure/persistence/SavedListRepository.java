@@ -11,5 +11,6 @@ public interface SavedListRepository extends JpaRepository<SavedList, Long> {
     @EntityGraph(attributePaths = {"items", "items.product"})
     Optional<SavedList> findByUserId(Long userId);
 
+    @EntityGraph(attributePaths = {"items", "items.product"})
     Optional<SavedList> findByShareToken(String shareToken);
 }

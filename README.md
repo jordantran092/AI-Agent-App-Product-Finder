@@ -53,7 +53,19 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Vite serves the frontend at <http://localhost:5173> and proxies API and health requests to the backend at port 8080.
+Vite serves the frontend at <http://localhost:5173> and proxies API and health requests to the backend at port 8080. Register or sign in to use the product-search chat, review and confirm extracted requirements, request buy/wait advice, manage saved products and notes, update profile filters, or create a read-only share link. Share links open at `/shared/{token}` and can be viewed without signing in.
+
+## CLI
+
+The Java CLI uses the same application services as the REST API and can be started instead of the web server after packaging:
+
+```powershell
+Set-Location backend
+.\mvnw.cmd package
+java -jar target\product-finder-0.1.0-SNAPSHOT.jar --app.cli.enabled=true
+```
+
+Use `register` or `login` first. The interactive CLI supports chat and requirement confirmation, buy/wait advice, saved-list add/remove and product details, best prices, review summaries, personal notes, profile settings, and share-link creation. Enter `help` to see all commands; use `exit` to quit. The `share` command prints a frontend link using `app.frontend-url` (default `http://localhost:5173`), so keep the React development server available when sharing.
 
 ## Tests and checks
 
@@ -62,10 +74,11 @@ Set-Location backend
 .\mvnw.cmd test
 
 Set-Location ..\frontend
+npm.cmd test
 npm.cmd run build
 npm.cmd run lint
 ```
 
-Most backend tests use an in-memory PostgreSQL-compatible H2 database. `PostgresRepositoryIntegrationTests` starts a disposable PostgreSQL 17 Testcontainers instance to verify migrations and repository operations; Docker must be running for this test.
+Most backend tests use an in-memory PostgreSQL-compatible H2 database. `PostgresRepositoryIntegrationTests` starts a disposable PostgreSQL 17 Testcontainers instance to verify migrations and repository operations; Docker must be running for this test. The frontend test suite uses Vitest, jsdom, and Testing Library to exercise the primary user flows and alternatives. DeepSeek interactions are tested with controlled HTTP responses; the automated suite does not make live provider requests.
 
 To verify startup against the actual local PostgreSQL container, start the container as above, then run `.\mvnw.cmd spring-boot:run` from `backend/` and check `http://localhost:8080/actuator/health`.

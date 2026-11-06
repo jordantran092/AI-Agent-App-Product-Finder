@@ -275,6 +275,51 @@ class PostgresRepositoryIntegrationTests {
                 .andExpect(jsonPath("$.items.length()").value(0));
     }
 
+    @Test
+    void sharingCreatesPublicReadOnlyLinkAndRevokesItWhenListBecomesEmpty() throws Exception {
+        MockHttpSession ownerSession = createLoggedInUser("share-api-owner-" + System.nanoTime());
+
+        mockMvc.perform(post("/api/saved-list/share").session(ownerSession).with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Add a product before sharing"));
+
+        mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"modelName\":\"OR-15-128\"}"))
+                .andExpect(status().isCreated());
+
+        MvcResult shareResult = mockMvc.perform(post("/api/saved-list/share")
+                        .session(ownerSession).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shareUrl").value(org.hamcrest.Matchers.containsString("/shared/")))
+                .andReturn();
+        String token = com.jayway.jsonpath.JsonPath.read(
+                shareResult.getResponse().getContentAsString(), "$.shareToken");
+        assertThat(token).matches("[A-Za-z0-9_-]{43}");
+
+        mockMvc.perform(post("/api/saved-list/share").session(ownerSession).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shareToken").value(token));
+
+        mockMvc.perform(get("/api/shared-lists/{token}", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].model").value("OR-15-128"))
+                .andExpect(jsonPath("$.items[0].retailer").value("Maple Market"))
+                .andExpect(jsonPath("$.items[0].price").value(679.99))
+                .andExpect(jsonPath("$.items[0].note").doesNotExist());
+
+        long productId = productRepository.findByModelIgnoreCase("OR-15-128").orElseThrow().getId();
+        mockMvc.perform(delete("/api/saved-list/items/{productId}", productId)
+                        .session(ownerSession).with(csrf()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/shared-lists/{token}", token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("This list is no longer available"));
+        mockMvc.perform(get("/api/shared-lists/{token}", "invalid-token"))
+                .andExpect(status().isNotFound());
+    }
+
     private MockHttpSession createLoggedInUser(String username) throws Exception {
         String password = "integration-password";
         userRepository.saveAndFlush(new User(username, passwordEncoder.encode(password)));
