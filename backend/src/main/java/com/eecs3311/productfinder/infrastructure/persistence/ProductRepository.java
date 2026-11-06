@@ -14,6 +14,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Optional<Product> findByModelIgnoreCase(String model);
 
+    List<Product> findByNameIgnoreCaseOrderByIdAsc(String name);
+
     boolean existsByBrandIgnoreCase(String brand);
 
     List<Product> findByCategory(ProductCategory category);

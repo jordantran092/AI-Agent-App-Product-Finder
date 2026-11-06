@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   api,
   ApiError,
@@ -236,6 +236,7 @@ function ChatWorkspace({
   const [chat, setChat] = useState<ChatResponse | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const sentMessageRef = useRef(false);
   const [urgency, setUrgency] = useState("I need it soon");
   const [advice, setAdvice] = useState<{ decision: string; reason: string } | null>(null);
   const [notice, setNotice] = useState("");
@@ -243,7 +244,7 @@ function ChatWorkspace({
   useEffect(() => {
     let active = true;
     api.chat().then((response) => {
-      if (active) setChat(response);
+      if (active && !sentMessageRef.current) setChat(response);
     }).catch((error: unknown) => {
       if (active) onError(messageFor(error));
     });
@@ -269,13 +270,29 @@ function ChatWorkspace({
     if (!text.trim()) return;
     const message = text.trim();
     setText("");
+    sentMessageRef.current = true;
+    setChat((current) => ({
+      ...(current ?? {
+        state: "GATHERING",
+        history: [],
+        requirements: null,
+        followUpQuestion: null,
+        match: null,
+        noMatchMessage: null,
+        constraintsToRelax: [],
+      }),
+      history: [
+        ...(current?.history ?? []),
+        { role: "USER", content: message, sentAt: new Date().toISOString() },
+      ],
+    }));
     await run(() => api.sendMessage(message));
   };
 
-  const saveMatch = async (product: Pick<Product, "model">) => {
+  const saveMatch = async (product: Pick<Product, "name">) => {
     setBusy(true);
     try {
-      const result = await api.addProduct(product.model);
+      const result = await api.addProduct(product.name);
       setNotice(result.message);
       if (result.status === "ADDED" || result.status === "ALREADY_SAVED") onSaved();
     } catch (error) {
@@ -306,7 +323,6 @@ function ChatWorkspace({
           <h1>What are you looking for?</h1>
           <p className="muted">Describe your needs. Review the agent’s understanding before it searches.</p>
         </div>
-        <span className="state-pill">{chat?.state ?? "CONNECTING"}</span>
       </div>
 
       <div className="workspace-grid">
@@ -315,7 +331,10 @@ function ChatWorkspace({
             {chat?.history.length ? chat.history.map((message, index) => (
               <article className={`chat-message ${message.role.toLowerCase()}`} key={`${message.sentAt}-${index}`}>
                 <span className="message-author">{message.role === "USER" ? "You" : "Product Finder"}</span>
-                <p>{message.content}</p>
+                <p>{message.role === "ASSISTANT"
+                  && message.content.startsWith("Please confirm these requirements:")
+                  ? "Please confirm the requirements shown."
+                  : message.content}</p>
               </article>
             )) : <p className="empty-state">Start with a product category, what matters to you, and your budget.</p>}
           </div>
@@ -324,6 +343,11 @@ function ChatWorkspace({
             <label className="visually-hidden" htmlFor="chat-message">Your product requirements</label>
             <textarea id="chat-message" rows={3} maxLength={4000} value={text}
               onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                if (!busy && text.trim()) event.currentTarget.form?.requestSubmit();
+              }}
               placeholder="For example: a phone under $700 with a good camera and at least 256 GB storage" />
             <button className="button button-primary" disabled={busy || !text.trim()}>
               {busy ? "Working…" : "Send"}
@@ -342,7 +366,7 @@ function ChatWorkspace({
                   <button className="button button-primary" disabled={busy}
                     onClick={() => void run(api.confirmRequirements)}>Confirm and search</button>
                   <button className="button button-secondary" disabled={busy}
-                    onClick={() => void run(api.cancelRequirements)}>Edit requirements</button>
+                    onClick={() => void run(api.cancelRequirements)}>Cancel</button>
                 </div>
               )}
             </section>
@@ -403,7 +427,7 @@ function RequirementsSummary({ requirements }: { requirements: NonNullable<ChatR
           <dt>Category-specific details</dt>
           <dd><ul className="attribute-list">
             {Object.entries(requirements.attributes).map(([key, value]) => (
-              <li key={key}><strong>{formatAttributeLabel(key)}</strong>: {formatAttributeValue(key, value)}</li>
+              <li key={key}><strong>{formatAttributeLabel(key)}</strong>: {formatAttributeValue(value)}</li>
             ))}
           </ul></dd>
         </div>
@@ -420,7 +444,7 @@ function SavedList({
   onError: (message: string) => void;
 }) {
   const [items, setItems] = useState<SavedItem[]>([]);
-  const [model, setModel] = useState("");
+  const [productName, setProductName] = useState("");
   const [suggestion, setSuggestion] = useState<AddProductResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -446,9 +470,9 @@ function SavedList({
     setNotice("");
     setSuggestion(null);
     try {
-      const result = await api.addProduct(model.trim());
+      const result = await api.addProduct(productName.trim());
       setNotice(result.message);
-      setModel("");
+      setProductName("");
       if (result.status === "SUGGESTION") setSuggestion(result);
       else if (result.status === "ADDED" || result.status === "ALREADY_SAVED") await refresh();
     } catch (error) {
@@ -518,12 +542,12 @@ function SavedList({
           onClick={() => void createShareLink()}>Share list</button>
       </div>
       <form className="add-product-form card" onSubmit={add}>
-        <label htmlFor="model-name">Add a product by model</label>
+        <label htmlFor="product-name">Add a product by name</label>
         <div className="inline-form">
-          <input id="model-name" value={model} maxLength={200}
-            onChange={(event) => setModel(event.target.value)}
-            placeholder="e.g. OR-15-128" required />
-          <button className="button button-primary" disabled={busy || !model.trim()}>Add product</button>
+          <input id="product-name" value={productName} maxLength={200}
+            onChange={(event) => setProductName(event.target.value)}
+            placeholder="e.g. iPhone 15" required />
+          <button className="button button-primary" disabled={busy || !productName.trim()}>Find product</button>
         </div>
       </form>
       {notice && <p role="status" className="success-banner">{notice}</p>}
@@ -544,7 +568,7 @@ function SavedList({
         </section>
       )}
       {items.length === 0 ? (
-        <div className="empty-panel"><h2>Your list is empty</h2><p>Add a product model to start tracking it.</p></div>
+        <div className="empty-panel"><h2>Your list is empty</h2><p>Find a product by name to start tracking it.</p></div>
       ) : (
         <div className="saved-grid">
           {items.map((item) => (
@@ -568,7 +592,7 @@ function SavedList({
 }
 
 function ProductSummary({ product }: {
-  product: Pick<Product, "name" | "brand" | "model" | "category" | "imageUrl">;
+  product: Pick<Product, "name" | "brand" | "category" | "imageUrl">;
 }) {
   return (
     <div className="product-summary">
@@ -578,7 +602,6 @@ function ProductSummary({ product }: {
       <div>
         <p className="product-brand">{product.brand} · {humanize(product.category)}</p>
         <h2>{product.name}</h2>
-        <p className="muted">Model {product.model}</p>
       </div>
     </div>
   );
@@ -667,7 +690,7 @@ function ProductPage({
         <h2>Specifications</h2>
         <dl className="spec-list">
           {Object.entries(product.attributes).map(([key, value]) => (
-            <div key={key}><dt>{formatAttributeLabel(key)}</dt><dd>{formatAttributeValue(key, value)}</dd></div>
+            <div key={key}><dt>{formatAttributeLabel(key)}</dt><dd>{formatAttributeValue(value)}</dd></div>
           ))}
         </dl>
       </article>
@@ -748,13 +771,13 @@ function ProfileEditor({ onError }: { onError: (message: string) => void }) {
       <form className="card stack settings-form" onSubmit={save}>
         <label>
           Maximum budget
-          <span className="input-prefix"><span>$</span><input type="number" min="0" step="0.01"
+          <span className="input-prefix"><span>CA$</span><input type="number" min="0" step="0.01"
             value={budget} onChange={(event) => setBudget(event.target.value)} placeholder="No limit" /></span>
         </label>
         <label>
           Excluded brands
           <input value={excludedBrands} onChange={(event) => setExcludedBrands(event.target.value)}
-            placeholder="Comma-separated, e.g. Orion, Maple" />
+            placeholder="Comma-separated, e.g. Samsung, Apple" />
           <span className="field-hint">Brand names must exist in the product catalog.</span>
         </label>
         <fieldset>
@@ -822,7 +845,7 @@ function SharedProductCard({ item }: { item: SharedProduct }) {
         {item.imageUrl
           ? <img src={item.imageUrl} alt="" className="product-image" />
           : <div className="product-image image-placeholder" aria-hidden="true">PF</div>}
-        <div><p className="product-brand">{item.brand}</p><h2>{item.name}</h2><p className="muted">Model {item.model}</p></div>
+        <div><p className="product-brand">{item.brand}</p><h2>{item.name}</h2></div>
       </div>
       <div className="offer-line"><span>Best offer</span>
         <strong>{item.price === null || item.retailer === null
@@ -844,7 +867,11 @@ function messageFor(error: unknown): string {
 }
 
 function formatPrice(value: number): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(value);
+  const amount = new Intl.NumberFormat("en-CA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+  return `CA$${amount}`;
 }
 
 function humanize(value: string): string {
@@ -852,30 +879,60 @@ function humanize(value: string): string {
 }
 
 function formatAttributeLabel(key: string): string {
-  const suffix = /(?:Gb|Mah|Inches|Hz|Hours)$/;
-  return humanize(key.replace(suffix, ""));
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .split(/\s+/);
+  const lastWord = words.at(-1)?.toLowerCase();
+  const units: Record<string, string> = {
+    gb: "GB",
+    mah: "mAh",
+    inches: "inches",
+    hz: "Hz",
+    hours: "hours",
+  };
+  const abbreviations: Record<string, string> = { hdr: "HDR", tv: "TV" };
+  if (lastWord && units[lastWord]) {
+    words.pop();
+    return `${humanizeWords(words)} (${units[lastWord]})`;
+  }
+  return words
+    .map((word, index) => {
+      const normalized = word.toLowerCase();
+      return abbreviations[normalized]
+        ?? (index === 0 ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : normalized);
+    })
+    .join(" ");
 }
 
-function formatAttributeValue(key: string, value: unknown): string {
-  let unit = "";
-  if (key.endsWith("Gb")) unit = " GB";
-  else if (key.endsWith("Mah")) unit = " mAh";
-  else if (key.endsWith("Inches")) unit = " inches";
-  else if (key.endsWith("Hz")) unit = " Hz";
-  else if (key.endsWith("Hours")) unit = " hours";
-
+function formatAttributeValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) return value.map(formatSimpleValue).join(", ");
   if (value !== null && typeof value === "object") {
     return Object.entries(value)
-      .map(([name, nestedValue]) => `${formatAttributeLabel(name)}: ${formatSimpleValue(nestedValue)}`)
+      .map(([name, nestedValue]) => `${formatAttributeLabel(name)}: ${formatAttributeValue(nestedValue)}`)
       .join(", ");
   }
-  return `${formatSimpleValue(value)}${unit}`;
+  return formatSimpleValue(value);
 }
 
 function formatSimpleValue(value: unknown): string {
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string" && value.includes("_")) return humanize(value);
+  if (typeof value === "string" && /[_-]/.test(value)) {
+    return humanizeWords(value.split(/[_-]+/));
+  }
   return String(value);
+}
+
+function humanizeWords(words: string[]): string {
+  return words
+    .map((word, index) => {
+      const normalized = word.toLowerCase();
+      return index === 0
+        ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
+        : normalized;
+    })
+    .join(" ");
 }

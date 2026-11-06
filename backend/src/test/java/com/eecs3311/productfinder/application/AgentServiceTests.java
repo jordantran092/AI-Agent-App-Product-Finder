@@ -48,8 +48,8 @@ class AgentServiceTests {
         assertThat(response.requirements()).isEqualTo(requirements());
         assertThat(response.history()).extracting("role").contains(MessageRole.USER, MessageRole.ASSISTANT);
         assertThat(response.history().getLast().content())
-                .contains("category-specific details: Storage 128 GB")
-                .doesNotContain("{storageGb=128}");
+                .isEqualTo("Please confirm the requirements shown.")
+                .doesNotContain("smartphone", "800.00", "storageGb", "128");
         verify(extractor).extract(any(), any());
     }
 

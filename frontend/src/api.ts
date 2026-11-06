@@ -151,10 +151,10 @@ export const api = {
       { method: "POST", body: { urgency } },
     ),
   savedList: () => request<{ items: SavedItem[] }>("/api/saved-list"),
-  addProduct: (modelName: string) =>
+  addProduct: (productName: string) =>
     request<AddProductResult>("/api/saved-list/items", {
       method: "POST",
-      body: { modelName },
+      body: { productName },
     }),
   confirmSuggestedProduct: (productId: number) =>
     request<AddProductResult>(`/api/saved-list/items/${productId}`, {

@@ -40,7 +40,7 @@ public class SavedListController {
     public ResponseEntity<AddProductResponse> add(@AuthenticationPrincipal UserDetails principal,
                                                   @Valid @RequestBody AddProductRequest request) {
         return addResponse(workflowService.addOrSuggest(
-                currentUserId.resolve(principal), request.modelName()));
+                currentUserId.resolve(principal), request.productName()));
     }
 
     @PostMapping("/items/{productId}")

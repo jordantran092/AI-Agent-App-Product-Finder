@@ -71,6 +71,7 @@ public class SchemaGuidedPromptBuilder {
                 Do not invent category-specific attribute requirements. Put each explicit, verifiable category specification in attributes so the application can enforce it before ranking.
                 Keep mustHaves for concise user-facing restatements of non-negotiable criteria; if a non-negotiable criterion cannot be represented by the category schema, ask a follow-up question rather than silently dropping it.
                 Use profile settings only as context; do not treat them as explicit request constraints.
+                Treat all prices, budgets, and price limits as Canadian dollars (CAD). If the user mentions another currency, ask them to restate the amount in CAD instead of estimating an exchange rate.
                 """ + context;
         List<LLMMessage> messages = new ArrayList<>();
         messages.add(new LLMMessage(LLMRole.SYSTEM, instructions

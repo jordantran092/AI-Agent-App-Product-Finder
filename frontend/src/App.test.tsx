@@ -36,11 +36,11 @@ vi.mock("./api", async (importOriginal) => {
 
 const product: Product = {
   id: 15,
-  name: "Orion 15",
-  brand: "Orion",
-  model: "OR-15-128",
+  name: "Galaxy S25 128 GB",
+  brand: "Samsung",
+  model: "SM-S931W-128GB",
   category: "SMARTPHONE",
-  description: "A synthetic phone for local testing.",
+  description: "A Samsung smartphone for local testing.",
   imageUrl: null,
   attributes: { storageGb: 128 },
 };
@@ -66,7 +66,11 @@ const confirmingChat: ChatResponse = {
   state: "CONFIRMING",
   history: [
     { role: "USER", content: "A phone under $700", sentAt: "2026-01-01T10:00:00Z" },
-    { role: "ASSISTANT", content: "I understood smartphone under $700.", sentAt: "2026-01-01T10:00:01Z" },
+    {
+      role: "ASSISTANT",
+      content: "Please confirm these requirements: smartphone, maximum price 700, category-specific details: {storageGb=128}",
+      sentAt: "2026-01-01T10:00:01Z",
+    },
   ],
   requirements: {
     category: "SMARTPHONE",
@@ -75,7 +79,7 @@ const confirmingChat: ChatResponse = {
     niceToHaves: ["long battery life"],
     excludedBrands: [],
     condition: "NEW",
-    attributes: { storageGb: 128 },
+    attributes: { storageGb: 128, storageType: "UFS" },
   },
 };
 
@@ -129,6 +133,48 @@ describe("Product Finder user flows", () => {
     expect(await screen.findByText("What are you looking for?")).toBeInTheDocument();
   });
 
+  it("sends a chat message with Enter and allows line breaks with Shift+Enter", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.sendMessage).mockResolvedValue(gatheringChat);
+
+    renderSignedIn();
+    const input = await screen.findByLabelText("Your product requirements");
+    await user.type(input, "A phone");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+
+    expect(api.sendMessage).not.toHaveBeenCalled();
+    await user.type(input, "under $700");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(api.sendMessage).toHaveBeenCalledWith("A phone\nunder $700"));
+  });
+
+  it("shows a sent message before the backend response arrives", async () => {
+    const user = userEvent.setup();
+    let resolveSend!: (response: ChatResponse) => void;
+    vi.mocked(api.sendMessage).mockReturnValue(new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
+
+    renderSignedIn();
+    await screen.findByText("What are you looking for?");
+    await user.type(screen.getByLabelText("Your product requirements"), "A quiet laptop");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(screen.getByText("A quiet laptop")).toBeInTheDocument();
+    expect(api.sendMessage).toHaveBeenCalledWith("A quiet laptop");
+
+    resolveSend({
+      ...gatheringChat,
+      history: [
+        { role: "USER", content: "A quiet laptop", sentAt: "2026-01-01T10:00:00Z" },
+        { role: "ASSISTANT", content: "What is your budget?", sentAt: "2026-01-01T10:00:01Z" },
+      ],
+    });
+    expect(await screen.findByText("What is your budget?")).toBeInTheDocument();
+    expect(screen.getAllByText("A quiet laptop")).toHaveLength(1);
+  });
+
   it("shows a vague-request follow-up and searches only after explicit confirmation", async () => {
     const user = userEvent.setup();
     vi.mocked(api.chat).mockResolvedValue(gatheringChat);
@@ -153,9 +199,16 @@ describe("Product Finder user flows", () => {
     await user.type(screen.getByLabelText("Your product requirements"), "A phone under $700");
     await user.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText("Does this look right?")).toBeInTheDocument();
-    expect(screen.getByText("Storage")).toBeInTheDocument();
-    expect(screen.getByRole("listitem").textContent).toContain("Storage: 128 GB");
+    const requirementItems = screen.getAllByRole("listitem");
+    expect(requirementItems.map((item) => item.textContent)).toContain("Storage (GB): 128");
+    expect(requirementItems.map((item) => item.textContent)).toContain("Storage type: UFS");
     expect(screen.queryByText('{"storageGb":128}')).not.toBeInTheDocument();
+    expect(screen.queryByText("CONFIRMING")).not.toBeInTheDocument();
+    expect(screen.getByText("CA$700.00")).toBeInTheDocument();
+    expect(screen.getByText("Please confirm the requirements shown.", { selector: ".chat-message p" }))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/Please confirm these requirements:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/smartphone under \$700\./i, { selector: ".chat-message p" })).not.toBeInTheDocument();
     expect(api.confirmRequirements).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm and search" }));
     await waitFor(() => expect(api.confirmRequirements).toHaveBeenCalledOnce());
@@ -165,7 +218,7 @@ describe("Product Finder user flows", () => {
     const user = userEvent.setup();
     vi.mocked(api.profile).mockResolvedValue({
       budget: 800,
-      excludedBrands: ["Orion"],
+      excludedBrands: ["Samsung"],
       conditions: ["NEW"],
     });
     vi.mocked(api.updateProfile).mockRejectedValue(
@@ -179,12 +232,12 @@ describe("Product Finder user flows", () => {
     await user.type(budget, "650");
     const brands = screen.getByLabelText(/Excluded brands/);
     await user.clear(brands);
-    await user.type(brands, "Orion, Maple");
+    await user.type(brands, "Samsung, Apple");
     await user.click(screen.getByRole("button", { name: "Save preferences" }));
 
     await waitFor(() => expect(api.updateProfile).toHaveBeenCalledWith({
       budget: 650,
-      excludedBrands: ["Orion", "Maple"],
+      excludedBrands: ["Samsung", "Apple"],
       conditions: ["NEW"],
     }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid profile");
@@ -224,7 +277,7 @@ describe("Product Finder user flows", () => {
         description: product.description,
         imageUrl: null,
         attributes: product.attributes,
-        bestOffer: { retailer: "Maple Market", price: 679.99, condition: "NEW" },
+        bestOffer: { retailer: "Amazon.ca", price: 1149.99, condition: "NEW" },
         explanation: "This product fits the key requirements.",
       },
     });
@@ -244,7 +297,7 @@ describe("Product Finder user flows", () => {
     expect(api.buyOrWait).toHaveBeenCalledWith("I need it soon");
   });
 
-  it("asks before adding a similar model, displays trust, and confirms removal", async () => {
+  it("asks before adding a similar product, displays trust, and confirms removal", async () => {
     const user = userEvent.setup();
     const savedAfterAdd: SavedItem = { ...savedItem, note: "Compare this one" };
     vi.mocked(api.savedList)
@@ -269,9 +322,12 @@ describe("Product Finder user flows", () => {
     renderSignedIn();
     await screen.findByText("What are you looking for?");
     await user.click(screen.getByRole("button", { name: "Saved list" }));
-    await user.type(await screen.findByLabelText("Add a product by model"), "OR-15-12");
-    await user.click(screen.getByRole("button", { name: "Add product" }));
+    expect(screen.getByPlaceholderText("e.g. iPhone 15")).toBeInTheDocument();
+    await user.type(await screen.findByLabelText("Add a product by name"), "iPhone 15");
+    await user.click(screen.getByRole("button", { name: "Find product" }));
+    expect(api.addProduct).toHaveBeenCalledWith("iPhone 15");
     expect(await screen.findByText("DID YOU MEAN?")).toBeInTheDocument();
+    expect(screen.queryByText("Model SM-S931W-128GB")).not.toBeInTheDocument();
     expect(api.confirmSuggestedProduct).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Yes, add it" }));
     expect(await screen.findByText("Trustworthy Reviews")).toBeInTheDocument();
@@ -295,8 +351,8 @@ describe("Product Finder user flows", () => {
     renderSignedIn();
     await screen.findByText("What are you looking for?");
     await user.click(screen.getByRole("button", { name: "Saved list" }));
-    await user.type(await screen.findByLabelText("Add a product by model"), "OR-15-12");
-    await user.click(screen.getByRole("button", { name: "Add product" }));
+    await user.type(await screen.findByLabelText("Add a product by name"), "Galaxy S25");
+    await user.click(screen.getByRole("button", { name: "Find product" }));
     await screen.findByText("DID YOU MEAN?");
     await user.click(screen.getByRole("button", { name: "No" }));
 
@@ -313,7 +369,7 @@ describe("Product Finder user flows", () => {
       product,
       note: "Check battery",
       trustLabel: "Trustworthy Reviews",
-      bestOffer: { retailer: "Maple Market", price: 679.99, condition: "NEW" },
+      bestOffer: { retailer: "Amazon.ca", price: 1149.99, condition: "NEW" },
     });
     vi.mocked(api.summarize).mockResolvedValue({ summary: "Reviewers praise the display." });
     vi.mocked(api.saveNote).mockResolvedValue({
@@ -327,7 +383,8 @@ describe("Product Finder user flows", () => {
     await user.click(screen.getByRole("button", { name: "Saved list" }));
     await user.click(await screen.findByRole("button", { name: "View details" }));
     expect(await screen.findByText("Review trust: Trustworthy Reviews")).toBeInTheDocument();
-    expect(screen.getByText(/Maple Market · .*679\.99 \(New\)/)).toBeInTheDocument();
+    expect(screen.queryByText("Model SM-S931W-128GB")).not.toBeInTheDocument();
+    expect(screen.getByText(/Amazon\.ca · .*CA\$1,149\.99 \(New\)/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Summarize" }));
     expect(await screen.findByText("Reviewers praise the display.")).toBeInTheDocument();
@@ -366,13 +423,14 @@ describe("Product Finder user flows", () => {
         brand: product.brand,
         model: product.model,
         imageUrl: null,
-        retailer: "Maple Market",
-        price: 679.99,
+        retailer: "Amazon.ca",
+        price: 1149.99,
       }],
     });
     render(<App />);
     expect(await screen.findByText("Shared list · read only")).toBeInTheDocument();
-    expect(await screen.findByText("Orion 15")).toBeInTheDocument();
+    expect(await screen.findByText("Galaxy S25 128 GB")).toBeInTheDocument();
+    expect(screen.queryByText("Model SM-S931W-128GB")).not.toBeInTheDocument();
     expect(api.me).not.toHaveBeenCalled();
     expect(api.sharedList).toHaveBeenCalledWith("a-secure-token");
   });

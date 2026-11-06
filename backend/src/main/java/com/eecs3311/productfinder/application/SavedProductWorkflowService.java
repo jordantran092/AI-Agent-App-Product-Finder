@@ -39,16 +39,16 @@ public class SavedProductWorkflowService {
         return savedListService.get(userId).map(SavedList::getItems).orElseGet(List::of);
     }
 
-    public ProductAddResult addOrSuggest(long userId, String modelName) {
-        if (modelName == null || modelName.isBlank() || modelName.length() > 200) {
-            throw new IllegalArgumentException("Model name must contain 1 to 200 characters");
+    public ProductAddResult addOrSuggest(long userId, String productName) {
+        if (productName == null || productName.isBlank() || productName.length() > 200) {
+            throw new IllegalArgumentException("Product name must contain 1 to 200 characters");
         }
-        String normalizedModel = modelName.trim();
-        Optional<Product> product = productRepository.findByModelIgnoreCase(normalizedModel);
-        if (product.isPresent()) {
-            return addKnownProduct(userId, product.get());
+        String normalizedName = productName.trim();
+        List<Product> products = productRepository.findByNameIgnoreCaseOrderByIdAsc(normalizedName);
+        if (!products.isEmpty()) {
+            return addKnownProduct(userId, products.getFirst());
         }
-        return agentService.suggestSimilar(normalizedModel)
+        return agentService.suggestSimilar(normalizedName)
                 .map(candidate -> new ProductAddResult(ProductAddStatus.SUGGESTION, candidate, null))
                 .orElseGet(() -> new ProductAddResult(ProductAddStatus.NOT_FOUND, null, null));
     }

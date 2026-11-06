@@ -15,7 +15,6 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,10 +50,10 @@ public class SimilarProductSuggester {
         this.objectMapper = objectMapper;
     }
 
-    public Optional<Product> suggest(String enteredModel) {
-        Objects.requireNonNull(enteredModel, "enteredModel must not be null");
+    public Optional<Product> suggest(String productName) {
+        Objects.requireNonNull(productName, "productName must not be null");
         List<Product> candidates = productRepository.findAll().stream()
-                .map(product -> new Candidate(product, similarity(enteredModel, product)))
+                .map(product -> new Candidate(product, similarity(productName, product)))
                 .filter(candidate -> candidate.similarity() >= MIN_SIMILARITY)
                 .sorted(Comparator.comparingDouble(Candidate::similarity).reversed()
                         .thenComparing(candidate -> candidate.product().getModel()))
@@ -68,11 +67,11 @@ public class SimilarProductSuggester {
         JsonNode response = parseObject(llmClient.complete(new LLMRequest(
                 List.of(
                         new LLMMessage(LLMRole.SYSTEM, """
-                                Choose the one catalog product that the user most likely intended to enter.
+                                Choose the one catalog product whose brand and product name most closely match
+                                the user's product-name query. The query may be a rough name or contain a typo.
                                 Choose only from the provided candidates and return its exact productId as JSON.
-                                If none is a plausible correction, choose the candidate with the closest model name.
                                 """),
-                        new LLMMessage(LLMRole.USER, writePrompt(enteredModel, candidates))
+                        new LLMMessage(LLMRole.USER, writePrompt(productName, candidates))
                 ),
                 new LLMOptions(0.7, 200, LLMResponseFormat.JSON_OBJECT),
                 new LLMOutputSchema("similar-product", OUTPUT_SCHEMA)
@@ -90,15 +89,14 @@ public class SimilarProductSuggester {
         return Optional.of(selected);
     }
 
-    private String writePrompt(String enteredModel, List<Product> candidates) {
+    private String writePrompt(String productName, List<Product> candidates) {
         Map<String, Object> input = new LinkedHashMap<>();
-        input.put("enteredModel", enteredModel);
+        input.put("productName", productName);
         input.put("candidates", candidates.stream().map(product -> {
             Map<String, Object> candidate = new LinkedHashMap<>();
             candidate.put("productId", product.getId());
             candidate.put("brand", product.getBrand());
             candidate.put("name", product.getName());
-            candidate.put("model", product.getModel());
             candidate.put("category", product.getCategory());
             candidate.put("attributes", product.getAttributes());
             return candidate;
@@ -122,22 +120,22 @@ public class SimilarProductSuggester {
         }
     }
 
-    private double similarity(String enteredModel, Product product) {
-        String query = normalize(enteredModel);
-        if (query.isEmpty()) {
+    private double similarity(String productName, Product product) {
+        List<String> queryTokens = tokens(productName);
+        if (queryTokens.isEmpty()) {
             return 0;
         }
-        List<String> options = new ArrayList<>();
-        options.add(product.getModel());
-        options.add(product.getName());
-        options.add(product.getBrand() + " " + product.getModel());
-        options.add(product.getBrand() + " " + product.getName());
-        return options.stream()
-                .map(SimilarProductSuggester::normalize)
-                .filter(option -> !option.isEmpty())
-                .mapToDouble(option -> editSimilarity(query, option))
-                .max()
+        List<String> candidateTokens = tokens(product.getBrand() + " " + product.getName());
+        double tokenSimilarity = queryTokens.stream()
+                .mapToDouble(queryToken -> candidateTokens.stream()
+                        .mapToDouble(candidateToken -> editSimilarity(queryToken, candidateToken))
+                        .max()
+                        .orElse(0))
+                .average()
                 .orElse(0);
+        double phraseSimilarity = editSimilarity(normalize(productName),
+                normalize(product.getBrand() + " " + product.getName()));
+        return Math.max(tokenSimilarity, phraseSimilarity);
     }
 
     private double editSimilarity(String first, String second) {
@@ -164,6 +162,12 @@ public class SimilarProductSuggester {
 
     private static String normalize(String value) {
         return value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private static List<String> tokens(String value) {
+        return java.util.Arrays.stream(value.toLowerCase(java.util.Locale.ROOT).split("[^a-z0-9]+"))
+                .filter(token -> !token.isEmpty())
+                .toList();
     }
 
     private record Candidate(Product product, double similarity) {

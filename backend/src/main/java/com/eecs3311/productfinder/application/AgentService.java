@@ -52,8 +52,8 @@ public class AgentService {
         this.similarProductSuggester = similarProductSuggester;
     }
 
-    public Optional<Product> suggestSimilar(String modelName) {
-        return similarProductSuggester.suggest(modelName);
+    public Optional<Product> suggestSimilar(String productName) {
+        return similarProductSuggester.suggest(productName);
     }
 
     public ChatFlowResponse handleMessage(long userId, String text) {
@@ -79,7 +79,7 @@ public class AgentService {
             }
             Requirements requirements = extraction.requirements();
             session.setPendingRequirements(requirements);
-            session.addMessage(MessageRole.ASSISTANT, confirmationText(requirements));
+            session.addMessage(MessageRole.ASSISTANT, confirmationText());
             session.transitionTo(ChatState.CONFIRMING);
             sessionStore.save(session);
             return response(session, requirements, null, null, null, List.of());
@@ -241,28 +241,7 @@ public class AgentService {
         );
     }
 
-    private String confirmationText(Requirements requirements) {
-        StringBuilder text = new StringBuilder("Please confirm these requirements: ")
-                .append(requirements.category().schemaName());
-        if (requirements.maxPrice() != null) {
-            text.append(", maximum price ").append(requirements.maxPrice());
-        }
-        if (!requirements.attributes().isEmpty()) {
-            text.append(", category-specific details: ")
-                    .append(CategoryAttributeFormatter.format(requirements.attributes()));
-        }
-        if (!requirements.mustHaves().isEmpty()) {
-            text.append(", must-haves ").append(requirements.mustHaves());
-        }
-        if (!requirements.niceToHaves().isEmpty()) {
-            text.append(", nice-to-haves ").append(requirements.niceToHaves());
-        }
-        if (!requirements.excludedBrands().isEmpty()) {
-            text.append(", excluded brands ").append(requirements.excludedBrands());
-        }
-        if (requirements.condition() != null) {
-            text.append(", condition ").append(requirements.condition());
-        }
-        return text.toString();
+    private String confirmationText() {
+        return "Please confirm the requirements shown.";
     }
 }

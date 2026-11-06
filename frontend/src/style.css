@@ -148,6 +148,7 @@ input, select { min-height: 43px; padding: 9px 12px; }
 textarea { padding: 12px; line-height: 1.5; resize: vertical; }
 input:focus, textarea:focus, select:focus { border-color: #69a08c; box-shadow: 0 0 0 3px rgba(37, 107, 86, .11); }
 .field-hint { color: var(--muted); font-size: 12px; font-weight: 400; }
+.catalog-note { margin: 8px 0 0; color: var(--muted); font-size: 11px; opacity: .75; }
 
 .button {
   display: inline-flex;
@@ -199,8 +200,7 @@ input:focus, textarea:focus, select:focus { border-color: #69a08c; box-shadow: 0
 .empty-state { margin: auto; max-width: 370px; color: var(--muted); text-align: center; line-height: 1.6; }
 .composer { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-top: 1px solid var(--line); background: #fbfcfb; }
 .composer .button { align-self: flex-end; min-width: 100px; }
-.state-pill, .public-badge { padding: 7px 10px; border: 1px solid #dce8e1; border-radius: 20px; color: var(--green-dark); background: #f0f7f3; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
-.state-pill { white-space: nowrap; }
+.public-badge { padding: 7px 10px; border: 1px solid #dce8e1; border-radius: 20px; color: var(--green-dark); background: #f0f7f3; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
 .requirements-list, .spec-list { display: grid; gap: 10px; margin: 0 0 17px; }
 .requirements-list > div, .spec-list > div { display: grid; grid-template-columns: minmax(90px, .6fr) 1fr; gap: 12px; border-bottom: 1px solid #eef1ef; padding-bottom: 8px; }
 .requirements-list dt, .spec-list dt { color: var(--muted); font-size: 12px; }

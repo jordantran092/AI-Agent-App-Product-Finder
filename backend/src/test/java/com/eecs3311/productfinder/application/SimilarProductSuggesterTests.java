@@ -38,7 +38,7 @@ class SimilarProductSuggesterTests {
         when(llm.complete(any(LLMRequest.class))).thenReturn(response("{\"productId\":11}"));
         SimilarProductSuggester suggester = new SimilarProductSuggester(products, llm, objectMapper);
 
-        Optional<Product> suggestion = suggester.suggest("OR-15-12B");
+        Optional<Product> suggestion = suggester.suggest("Orion 15 128GB");
 
         assertThat(suggestion).containsSame(candidate);
         ArgumentCaptor<LLMRequest> request = ArgumentCaptor.forClass(LLMRequest.class);
@@ -47,7 +47,7 @@ class SimilarProductSuggesterTests {
         assertThat(llmRequest.outputSchema()).isNotNull();
         assertThat(llmRequest.outputSchema().name()).isEqualTo("similar-product");
         assertThat(llmRequest.messages().get(1).content())
-                .contains("OR-15-12B")
+                .contains("\"productName\":\"Orion 15 128GB\"")
                 .contains("\"productId\":11")
                 .doesNotContain("\"productId\":12");
     }
@@ -72,9 +72,22 @@ class SimilarProductSuggesterTests {
         when(llm.complete(any(LLMRequest.class))).thenReturn(response("{\"productId\":999}"));
         SimilarProductSuggester suggester = new SimilarProductSuggester(products, llm, objectMapper);
 
-        assertThatThrownBy(() -> suggester.suggest("OR-15-12B"))
+        assertThatThrownBy(() -> suggester.suggest("Orion 15 128GB"))
                 .isInstanceOf(com.eecs3311.productfinder.application.llm.LLMProtocolException.class)
                 .hasMessageContaining("outside the candidate set");
+    }
+
+    @Test
+    void findsNameCandidatesForAroughAndMisspelledProductName() {
+        Product iphone = product(41L, "iPhone 16 128 GB", "Apple", "A3081");
+        Product unrelated = product(42L, "Galaxy S25 128 GB", "Samsung", "SM-S931W");
+        ProductRepository products = mock(ProductRepository.class);
+        when(products.findAll()).thenReturn(List.of(iphone, unrelated));
+        LLMClient llm = mock(LLMClient.class);
+        when(llm.complete(any(LLMRequest.class))).thenReturn(response("{\"productId\":41}"));
+        SimilarProductSuggester suggester = new SimilarProductSuggester(products, llm, objectMapper);
+
+        assertThat(suggester.suggest("iPhone 15")).containsSame(iphone);
     }
 
     private static Product product(long id, String name, String brand, String model) {

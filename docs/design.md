@@ -6,7 +6,7 @@
 
 What problem does your project solve?
 
-   - This project will help users find products and the best prices for a specific product among different retailers. (* IMPORTANT NOTE: DB data of product info is generated/synthetic otherwise my software has to fight against anti-bot defense systems for data scraping off real websites which is unpredictable and is not the point of this project, and that external APIs for retailers are not easily accessible e.g. requiring payment)
+   - This project will help users find products and the best prices for a specific product among different retailers. Its 2,500-entry demonstration catalog uses familiar product families and Canadian retailer names. Generated configurations and model identifiers are synthetic and are not a verified manufacturer SKU list; inventory, prices, price history, and reviews are also synthetic. All monetary values are in Canadian dollars (CAD). The project does not scrape retailer sites or claim that sample offers are live.
 
 - Who are the target users?
 
@@ -37,6 +37,8 @@ How will the AI model interact with the rest of the software system?
 - User Interaction — How does the user access or use this feature through the GUI?
 
 Opening the AI agent chatbox and giving a prompt
+
+The user's message appears in the chat immediately on send, while the agent processes it.
 
 - Input — What information does the feature require?
 
@@ -126,11 +128,13 @@ A list of products that you can select from, and it will direct you to a dedicat
 
 - Input — What information does the feature require?
 
-Users have to enter a specific product (most likely a specific model) so that it can be added into the list and fetch relevant data for the product
+Users enter a rough product name, such as “iPhone 15”; they do not need to know a manufacturer model number.
 
 - Output — What does it produce?
 
 A list of saved products
+
+Product cards and shared lists display the product name and brand, but do not expose the catalog model identifier.
 
 - AI Involvement — Is the feature deterministic, AI-based, or hybrid?
 
@@ -138,11 +142,11 @@ Hybrid
 
 - Expected Workflow — What happens when the feature is executed?
 
-   - Traditional software will search for the product and confirm it exists. If so, then it will add it to the list. Agent can handle some error cases mentioned below.
+   - Traditional software searches for an exact product-name match and adds it to the list. If the name is approximate or misspelled, the agent suggests a similar catalog product and asks the user to confirm before adding it.
 
 - Error/Alternative Cases — What could go wrong and how should the system respond?
 
-   - A product model is entered incorrectly. The agent would suggest a valid similar match and confirm with the user if they wanted that
+   - The product name is entered incorrectly or only approximately. The agent suggests a valid similar match and asks the user to confirm before adding it.
 #### F05 — Compare prices among retailers for a product
 - Description
 
@@ -446,7 +450,7 @@ classDiagram
         +reviewInsights(productId)
     }
     class SavedListService {
-        +addProduct(modelName)
+        +addProduct(productName)
         +removeProduct(productId)
         +createShareLink()
         +saveNote(productId, note)
@@ -954,7 +958,7 @@ Included by UC01 after UC02 finishes
 
 **Main Success Scenario:**
 
-The system shows the pending requirements in a confirmation dialog. Category-specific attributes are displayed as readable labels and values, with units where applicable, rather than serialized JSON.
+The system shows the pending requirements in a confirmation dialog. Category-specific attributes are displayed as readable labels and values, with units in the labels where applicable, rather than serialized JSON. In the chat, the agent only asks the user to confirm the requirements shown and does not repeat their values.
 
 The user confirms.
 
@@ -1104,7 +1108,7 @@ Registered User
 
 **Goal:**
 
-Save a specific product model to the user's list to track it.
+Save a product, identified by a rough name such as “iPhone 15”, to the user's list to track it.
 
 **Preconditions:**
 
@@ -1112,11 +1116,11 @@ The user is signed in.
 
 **Trigger:**
 
-The user enters a product model name and clicks "Add".
+The user enters a product name and clicks “Find product”.
 
 **Main Success Scenario:**
 
-The user enters a model name.
+The user enters a product name.
 
 The system finds the product in the database.
 
@@ -1128,7 +1132,7 @@ The productʼs page will now have and show a trust label.
 
 **Alternative/Exception Flows:**
 
-No product matches the name, the system suggests a similar model (extends with UC08).
+No exact product name matches, the agent suggests a similar product name and asks the user to confirm it (extends with UC08).
 
 The product is already in the list, the system tells the user and adds nothing.
 
@@ -1143,20 +1147,20 @@ F04, F08
 #### UC08
 **Use Case Name:**
 
-Suggest similar model
+Suggest similar product
 
 **Actor(s):**
 
 Registered User, DeepSeek LLM
 **Goal:**
 
-Handle a incorrectly typed or unknown model name.
+Handle an approximate or incorrectly typed product name.
 **Preconditions:**
- UC07 could not find the entered model.
+ UC07 could not find an exact product-name match.
 **Trigger:**
  Extends UC07 at step 2 when no exact match is found.
 **Main Success Scenario:**
- The system retrieves products with similar names. The system asks DeepSeek which candidate the user most likely meant. The system asks the user something along the lines of “Did you mean…” The user accepts and UC07 continues from step 3 (i.e. adding the product)
+ The system retrieves products with similar names. The system asks DeepSeek which candidate the user most likely meant. The system asks the user something along the lines of “Did you mean…”. The user accepts and UC07 continues from step 3 (i.e. adding the product).
 **Alternative/Exception Flows:**
  No similar products exist, the system shows "Product not found". The user declines and nothing is added and the user can enter a different name.
 **Postconditions:**
@@ -1527,19 +1531,19 @@ sequenceDiagram
     participant L as LLMClient
     participant Proxy as CachedReviewAnalyzer
     participant Real as LLMReviewAnalyzer
-    User->>UI: Enter model and select Add
-    UI->>C: add(modelName)
-    C->>S: addProduct(userId, modelName)
-    S->>R: findByModelName(modelName)
+    User->>UI: Enter product name and select Find product
+    UI->>C: add(productName)
+    C->>S: addProduct(userId, productName)
+    S->>R: findByName(productName)
     alt Exact product found
         R-->>S: Product
     else Not found
-        S->>R: findSimilar(modelName)
+        S->>R: findSimilarByName(productName)
         R-->>S: Candidates
         alt Similar candidates exist
-            S->>A: suggestSimilar(modelName, candidates)
+            S->>A: suggestSimilar(productName, candidates)
             A->>L: complete(messages, options)
-            L-->>A: Suggested model
+            L-->>A: Suggested product
             A-->>UI: Ask “Did you mean ...?”
             alt User accepts
                 User->>UI: Accept suggestion
@@ -2044,17 +2048,17 @@ SD8 — Remove product
 
 - Classes involved:
 
-SavedListPage — where the user enters a model name, sees the list and removes products.
+SavedListPage — where the user enters a product name, sees the list and removes products.
 
 SavedListController — receives add and remove requests.
 
 SavedListService — finds the product, prevents duplicates and updates the list.
 
-ProductRepository — looks up products by exact or similar model name.
+ProductRepository — looks up products by exact product name; the agent ranks candidates for approximate names.
 
 SavedList / SavedItem — the user's list and each saved product with its note and trust label.
 
-AgentService — the Facade, suggestSimilar() handles mistyped model names with the AI.
+AgentService — the Facade, suggestSimilar() handles approximate or mistyped product names with the AI.
 
 LLMClient — The interface every AI feature calls. At runtime it is RetryingLLMClient (Decorator) wrapping DeepSeekClient (Adapter), which sends requests through SharedLLMClient (Singleton) to DeepSeek.
 

@@ -120,16 +120,21 @@ class PostgresRepositoryIntegrationTests {
                 .isEqualTo(savedUser.getId());
 
         for (ProductCategory category : ProductCategory.values()) {
-            assertThat(productService.findByCategory(category)).hasSize(1);
+            assertThat(productService.findByCategory(category)).hasSize(category == ProductCategory.SMARTPHONE
+                    || category == ProductCategory.LAPTOP
+                    || category == ProductCategory.TABLET
+                    || category == ProductCategory.TELEVISION ? 313 : 312);
         }
-        var smartphone = productRepository.findByModelIgnoreCase("OR-15-128").orElseThrow();
+        var smartphone = productRepository.findByModelIgnoreCase("SM-S931W-128GB").orElseThrow();
         assertThat(smartphone.getAttributes()).containsEntry("storageGb", 128);
         var listings = listingRepository.findByProductId(smartphone.getId());
         assertThat(listings).hasSize(2);
         assertThat(pricePointRepository.findByListingIdOrderByRecordedAtAsc(listings.getFirst().getId()))
                 .hasSize(2);
         assertThat(reviewRepository.findByProductIdOrderByReviewedAtDesc(smartphone.getId())).hasSize(2);
-        assertThat(retailerRepository.findByNameIgnoreCase("Northstar Electronics")).isPresent();
+        assertThat(retailerRepository.findByNameIgnoreCase("Best Buy Canada")).isPresent();
+        assertThat(retailerRepository.findByNameIgnoreCase("Apple Store")).isPresent();
+        assertThat(productService.findByCategory(ProductCategory.LAPTOP).getFirst().getBrand()).isEqualTo("Apple");
 
         UserProfile profile = userProfileRepository.saveAndFlush(new UserProfile(savedUser,
                 new BigDecimal("900.00"), Set.of("Avoid Brand"), Set.of(ProductCondition.NEW)));
@@ -189,22 +194,22 @@ class PostgresRepositoryIntegrationTests {
                 "$2a$12$hashed-test-value"));
         assertThat(savedListService.get(user.getId())).isEmpty();
 
-        SavedList savedList = savedListService.addProduct(user.getId(), "or-15-128");
+        SavedList savedList = savedListService.addProduct(user.getId(), "sm-s931w-128gb");
         long productId = savedList.getItems().getFirst().getProduct().getId();
         assertThat(savedListService.get(user.getId())).isPresent();
         assertThatIllegalStateException()
-                .isThrownBy(() -> savedListService.addProduct(user.getId(), "OR-15-128"))
+                .isThrownBy(() -> savedListService.addProduct(user.getId(), "SM-S931W-128GB"))
                 .withMessageContaining("already");
 
-        profileService.update(user.getId(), new BigDecimal("800.00"), Set.of(" ORION "),
+        profileService.update(user.getId(), new BigDecimal("1500.00"), Set.of(" SAMSUNG "),
                 Set.of(ProductCondition.NEW));
         assertThat(productService.bestPrice(user.getId(), productId)).isEmpty();
 
-        var settings = profileService.update(user.getId(), new BigDecimal("800.00"),
-                Set.of("Pine"), Set.of(ProductCondition.NEW));
-        assertThat(settings.excludedBrands()).containsExactly("pine");
+        var settings = profileService.update(user.getId(), new BigDecimal("1500.00"),
+                Set.of("Apple"), Set.of(ProductCondition.NEW));
+        assertThat(settings.excludedBrands()).containsExactly("apple");
         assertThat(productService.bestPrice(user.getId(), productId).orElseThrow().getPrice())
-                .isEqualByComparingTo("679.99");
+                .isEqualByComparingTo("1149.99");
 
         savedListService.removeProduct(user.getId(), productId);
         assertThat(savedListService.get(user.getId()).orElseThrow().isEmpty()).isTrue();
@@ -213,17 +218,18 @@ class PostgresRepositoryIntegrationTests {
     @Test
     void savedProductApiSupportsDuplicateConfirmationNotesSettingsAndOwnerIsolation() throws Exception {
         MockHttpSession ownerSession = createLoggedInUser("saved-api-owner-" + System.nanoTime());
-        long productId = productRepository.findByModelIgnoreCase("OR-15-128").orElseThrow().getId();
+        long productId = productRepository.findByModelIgnoreCase("SM-S931W-128GB").orElseThrow().getId();
+        String productName = productRepository.findById(productId).orElseThrow().getName();
 
         mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"modelName\":\"OR-15-128\"}"))
+                        .content("{\"productName\":\"%s\"}".formatted(productName)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("ADDED"))
                 .andExpect(jsonPath("$.trustLabel").value("Trustworthy Reviews"));
         mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"modelName\":\"or-15-128\"}"))
+                        .content("{\"productName\":\"%s\"}".formatted(productName.toLowerCase())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ALREADY_SAVED"));
 
@@ -236,9 +242,9 @@ class PostgresRepositoryIntegrationTests {
 
         mockMvc.perform(put("/api/profile").session(ownerSession).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"budget\":1200.00,\"excludedBrands\":[\"Pine\"],\"conditions\":[\"NEW\"]}"))
+                        .content("{\"budget\":1200.00,\"excludedBrands\":[\"Apple\"],\"conditions\":[\"NEW\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.excludedBrands[0]").value("pine"));
+                .andExpect(jsonPath("$.excludedBrands[0]").value("apple"));
         mockMvc.perform(put("/api/profile").session(ownerSession).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"budget\":1200.00,\"excludedBrands\":[\"Not A Brand\"],"
@@ -251,10 +257,10 @@ class PostgresRepositoryIntegrationTests {
                 .andExpect(jsonPath("$.items.length()").value(1));
         mockMvc.perform(get("/api/products/{productId}", productId).session(ownerSession))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.product.model").value("OR-15-128"))
+                .andExpect(jsonPath("$.product.model").value("SM-S931W-128GB"))
                 .andExpect(jsonPath("$.note").value("keep this"))
                 .andExpect(jsonPath("$.trustLabel").value("Trustworthy Reviews"))
-                .andExpect(jsonPath("$.bestOffer.price").value(679.99));
+                .andExpect(jsonPath("$.bestOffer.price").value(1149.99));
         mockMvc.perform(post("/api/products/{productId}/summary", productId)
                         .session(ownerSession).with(csrf()))
                 .andExpect(status().isOk())
@@ -278,6 +284,7 @@ class PostgresRepositoryIntegrationTests {
     @Test
     void sharingCreatesPublicReadOnlyLinkAndRevokesItWhenListBecomesEmpty() throws Exception {
         MockHttpSession ownerSession = createLoggedInUser("share-api-owner-" + System.nanoTime());
+        String productName = productRepository.findByModelIgnoreCase("SM-S931W-128GB").orElseThrow().getName();
 
         mockMvc.perform(post("/api/saved-list/share").session(ownerSession).with(csrf()))
                 .andExpect(status().isConflict())
@@ -285,7 +292,7 @@ class PostgresRepositoryIntegrationTests {
 
         mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"modelName\":\"OR-15-128\"}"))
+                        .content("{\"productName\":\"%s\"}".formatted(productName)))
                 .andExpect(status().isCreated());
 
         MvcResult shareResult = mockMvc.perform(post("/api/saved-list/share")
@@ -304,12 +311,12 @@ class PostgresRepositoryIntegrationTests {
         mockMvc.perform(get("/api/shared-lists/{token}", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].model").value("OR-15-128"))
-                .andExpect(jsonPath("$.items[0].retailer").value("Maple Market"))
-                .andExpect(jsonPath("$.items[0].price").value(679.99))
+                .andExpect(jsonPath("$.items[0].model").value("SM-S931W-128GB"))
+                .andExpect(jsonPath("$.items[0].retailer").value("Amazon.ca"))
+                .andExpect(jsonPath("$.items[0].price").value(1149.99))
                 .andExpect(jsonPath("$.items[0].note").doesNotExist());
 
-        long productId = productRepository.findByModelIgnoreCase("OR-15-128").orElseThrow().getId();
+        long productId = productRepository.findByModelIgnoreCase("SM-S931W-128GB").orElseThrow().getId();
         mockMvc.perform(delete("/api/saved-list/items/{productId}", productId)
                         .session(ownerSession).with(csrf()))
                 .andExpect(status().isNoContent());

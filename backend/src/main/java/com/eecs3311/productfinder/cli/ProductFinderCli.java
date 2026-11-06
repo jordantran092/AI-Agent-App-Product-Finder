@@ -206,21 +206,19 @@ public class ProductFinderCli implements CommandLineRunner {
         }
         for (SavedItem item : items) {
             Product product = item.getProduct();
-            System.out.printf("%d  %s (%s) — %s%n", product.getId(), product.getName(),
-                    product.getModel(), item.getTrustLabel());
+            System.out.printf("%d  %s — %s%n", product.getId(), product.getName(), item.getTrustLabel());
         }
     }
 
-    private void addProduct(String model) {
-        if (model.isBlank()) {
-            System.out.println("Usage: add <product-model>");
+    private void addProduct(String productName) {
+        if (productName.isBlank()) {
+            System.out.println("Usage: add <product-name>");
             return;
         }
-        ProductAddResult result = savedProductWorkflowService.addOrSuggest(currentUser.getId(), model);
+        ProductAddResult result = savedProductWorkflowService.addOrSuggest(currentUser.getId(), productName);
         System.out.println(result.status() + ": " + result.status().name().replace('_', ' '));
         if (result.product() != null) {
-            System.out.printf("%s (%s), id %d%n", result.product().getName(),
-                    result.product().getModel(), result.product().getId());
+            System.out.printf("%s, id %d%n", result.product().getName(), result.product().getId());
             if (result.status().name().equals("SUGGESTION")) {
                 System.out.println("Run 'confirm-add " + result.product().getId() + "' to accept.");
             }
@@ -275,8 +273,7 @@ public class ProductFinderCli implements CommandLineRunner {
             return;
         }
         Product product = page.product();
-        System.out.printf("%s — %s %s%n%s%n", product.getName(), product.getBrand(),
-                product.getModel(), product.getDescription());
+        System.out.printf("%s — %s%n%s%n", product.getName(), product.getBrand(), product.getDescription());
         System.out.println("Specifications: " + product.getAttributes());
         System.out.println("Review trust: " + page.savedItem().getTrustLabel());
         if (page.bestListing() == null) {
@@ -359,7 +356,7 @@ public class ProductFinderCli implements CommandLineRunner {
                   register, login, logout
                   chat                              Start product search chat
                   list                              Show saved products
-                  add <model>                       Add a product or get a suggestion
+                  add <product-name>                Add a product or get a suggestion
                   confirm-add <product-id>           Accept a suggested product
                   remove <product-id>                Remove a saved product
                   product <product-id>               Show saved product details

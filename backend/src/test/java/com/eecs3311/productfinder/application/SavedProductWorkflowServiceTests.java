@@ -16,6 +16,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class SavedProductWorkflowServiceTests {
@@ -47,7 +48,7 @@ class SavedProductWorkflowServiceTests {
     void suggestionsDoNotAddUntilTheUserConfirms() throws Exception {
         Product candidate = product(22L);
         ProductRepository products = mock(ProductRepository.class);
-        when(products.findByModelIgnoreCase("OR-15-12B")).thenReturn(Optional.empty());
+        when(products.findByNameIgnoreCaseOrderByIdAsc("Orion 15 128GB")).thenReturn(java.util.List.of());
         when(products.findById(22L)).thenReturn(Optional.of(candidate));
         SavedListService savedListService = mock(SavedListService.class);
         SavedItem savedItem = mock(SavedItem.class);
@@ -56,14 +57,14 @@ class SavedProductWorkflowServiceTests {
                 .thenReturn(Optional.empty(), Optional.of(savedItem));
         when(savedListService.updateTrustLabel(5L, 22L, "Trustworthy Reviews")).thenReturn(savedItem);
         AgentService agentService = mock(AgentService.class);
-        when(agentService.suggestSimilar("OR-15-12B")).thenReturn(Optional.of(candidate));
+        when(agentService.suggestSimilar("Orion 15 128GB")).thenReturn(Optional.of(candidate));
         ReviewAnalyzer reviewAnalyzer = mock(ReviewAnalyzer.class);
         when(reviewAnalyzer.analyzeTrust(22L)).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
         SavedProductWorkflowService workflow = new SavedProductWorkflowService(
                 products, savedListService, agentService, mock(ProductService.class),
                 reviewAnalyzer);
 
-        ProductAddResult suggestion = workflow.addOrSuggest(5, "OR-15-12B");
+        ProductAddResult suggestion = workflow.addOrSuggest(5, "Orion 15 128GB");
 
         assertThat(suggestion.status()).isEqualTo(ProductAddStatus.SUGGESTION);
         verify(savedListService, never()).addProductById(anyLong(), anyLong());
@@ -72,6 +73,29 @@ class SavedProductWorkflowServiceTests {
         assertThat(accepted.trustLabel()).isEqualTo("Trustworthy Reviews");
         verify(savedListService).addProductById(5, 22);
         verify(savedListService).updateTrustLabel(5, 22, "Trustworthy Reviews");
+    }
+
+    @Test
+    void addsAnExactProductNameWithoutAskingForItsCatalogModelNumber() throws Exception {
+        Product product = product(23L);
+        ProductRepository products = mock(ProductRepository.class);
+        when(products.findByNameIgnoreCaseOrderByIdAsc("Orion 15")).thenReturn(java.util.List.of(product));
+        SavedListService savedListService = mock(SavedListService.class);
+        SavedItem savedItem = mock(SavedItem.class);
+        when(savedItem.getTrustLabel()).thenReturn("Trustworthy Reviews");
+        when(savedListService.findSavedItem(5L, 23L)).thenReturn(Optional.empty(), Optional.of(savedItem));
+        when(savedItem.getTrustLabel()).thenReturn("Trustworthy Reviews");
+        ReviewAnalyzer reviewAnalyzer = mock(ReviewAnalyzer.class);
+        when(reviewAnalyzer.analyzeTrust(23L)).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
+        SavedProductWorkflowService workflow = new SavedProductWorkflowService(
+                products, savedListService, mock(AgentService.class), mock(ProductService.class), reviewAnalyzer);
+
+        ProductAddResult result = workflow.addOrSuggest(5, " Orion 15 ");
+
+        assertThat(result.status()).isEqualTo(ProductAddStatus.ADDED);
+        verify(products).findByNameIgnoreCaseOrderByIdAsc("Orion 15");
+        verify(products, never()).findByModelIgnoreCase(anyString());
+        verify(savedListService).addProductById(5, 23);
     }
 
     @Test
