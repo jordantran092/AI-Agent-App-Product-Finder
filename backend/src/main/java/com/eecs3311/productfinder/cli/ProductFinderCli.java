@@ -21,6 +21,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Locale;
@@ -87,6 +88,7 @@ public class ProductFinderCli implements CommandLineRunner {
         String argument = parts.length == 2 ? parts[1].trim() : "";
         switch (command) {
             case "help" -> printHelp();
+            case "clear", "cls" -> clearScreen();
             case "login" -> login(input);
             case "register" -> register(input);
             case "logout" -> logout();
@@ -104,6 +106,28 @@ public class ProductFinderCli implements CommandLineRunner {
             case "share" -> requireUser(this::shareList);
             default -> System.out.println("Unknown command. Type 'help' for available commands.");
         }
+    }
+
+    private void clearScreen() {
+        if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")) {
+            try {
+                int exitCode = new ProcessBuilder("cmd.exe", "/c", "cls")
+                        .inheritIO()
+                        .start()
+                        .waitFor();
+                if (exitCode != 0) {
+                    throw new IllegalStateException("Windows could not clear the terminal screen");
+                }
+            } catch (IOException exception) {
+                throw new IllegalStateException("Unable to clear the Windows terminal screen", exception);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while clearing the terminal screen", exception);
+            }
+            return;
+        }
+        System.out.print("\u001B[2J\u001B[H");
+        System.out.flush();
     }
 
     private void login(ConsoleInput input) {
@@ -235,7 +259,7 @@ public class ProductFinderCli implements CommandLineRunner {
             case ADDED -> "Product added to your saved list";
             case ALREADY_SAVED -> "Product is already in your saved list";
             case SUGGESTION -> "Did you mean this product? Confirm to add it";
-            case NOT_FOUND -> "Product not found";
+            case NOT_FOUND -> "This product does not exist in our catalog. Try a different product name.";
         });
         if (result.trustLabel() != null) {
             System.out.println("Review trust: " + result.trustLabel());
@@ -366,6 +390,7 @@ public class ProductFinderCli implements CommandLineRunner {
                   profile                            Show preferences
                   settings                           Update preferences
                   share                              Create a public list link
+                  clear, cls                         Clear the terminal screen
                   help, exit
                 """);
     }

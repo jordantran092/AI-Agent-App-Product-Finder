@@ -46,6 +46,7 @@ class SimilarProductSuggesterTests {
         LLMRequest llmRequest = request.getValue();
         assertThat(llmRequest.outputSchema()).isNotNull();
         assertThat(llmRequest.outputSchema().name()).isEqualTo("similar-product");
+        assertThat(llmRequest.options().maxTokens()).isEqualTo(1024);
         assertThat(llmRequest.messages().get(1).content())
                 .contains("\"productName\":\"Orion 15 128GB\"")
                 .contains("\"productId\":11")
@@ -88,6 +89,36 @@ class SimilarProductSuggesterTests {
         SimilarProductSuggester suggester = new SimilarProductSuggester(products, llm, objectMapper);
 
         assertThat(suggester.suggest("iPhone 15")).containsSame(iphone);
+    }
+
+    @Test
+    void suggestsAnExactProductNamePhraseWithoutCallingTheModel() {
+        Product iphone = product(43L, "iPhone 16 128 GB Black", "Apple", "A3081-128-BLK");
+        Product unrelated = product(44L, "Galaxy S25 128 GB", "Samsung", "SM-S931W");
+        ProductRepository products = mock(ProductRepository.class);
+        when(products.findAll()).thenReturn(List.of(iphone, unrelated));
+        LLMClient llm = mock(LLMClient.class);
+        SimilarProductSuggester suggester = new SimilarProductSuggester(products, llm, objectMapper);
+
+        assertThat(suggester.suggest("iphone 16")).containsSame(iphone);
+
+        verify(llm, never()).complete(any());
+    }
+
+    @Test
+    void returnsNoSuggestionWhenTheModelSaysNoCandidateIsHighlySimilar() {
+        Product candidate = product(51L, "iPhone 16 128 GB", "Apple", "A3081");
+        ProductRepository products = mock(ProductRepository.class);
+        when(products.findAll()).thenReturn(List.of(candidate));
+        LLMClient llm = mock(LLMClient.class);
+        when(llm.complete(any(LLMRequest.class))).thenReturn(response("{\"productId\":null}"));
+        SimilarProductSuggester suggester = new SimilarProductSuggester(products, llm, objectMapper);
+
+        assertThat(suggester.suggest("iPhone 15")).isEmpty();
+        ArgumentCaptor<LLMRequest> request = ArgumentCaptor.forClass(LLMRequest.class);
+        verify(llm).complete(request.capture());
+        new com.eecs3311.productfinder.application.llm.StructuredOutputValidator(objectMapper)
+                .validate("{\"productId\":null}", request.getValue().outputSchema());
     }
 
     private static Product product(long id, String name, String brand, String model) {

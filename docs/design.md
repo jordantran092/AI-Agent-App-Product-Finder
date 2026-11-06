@@ -40,6 +40,8 @@ Opening the AI agent chatbox and giving a prompt
 
 The user's message appears in the chat immediately on send, while the agent processes it.
 
+Agent follow-up questions are displayed in the chat history only; do not repeat the same question in a separate callout.
+
 - Input — What information does the feature require?
 
 It requires a description of what the user wants, with constraints in natural language
@@ -250,7 +252,7 @@ A summarized phrase indicator to show the trustworthiness of the product reviews
 
 - AI Involvement — Is the feature deterministic, AI-based, or hybrid?
 
-   - Hybrid. Traditional software can handle parts like pulling review data. AI can interpret the reviews and give a trustworthiness rating.
+   - Hybrid. Traditional software can handle parts like pulling review data. AI can interpret the reviews and give a lenient trust signal. Labels must not mention that catalog content is synthetic or generated. For widely recognized, established brands, the AI should favor "Trustworthy Reviews" in about 90% of ordinary cases; only clear, strong suspicious review patterns should override that positive prior.
 
 - Expected Workflow — What happens when the feature is executed?
 
@@ -323,7 +325,7 @@ User clicks the saved notes button, they can read the displayed notes, type into
 - **Database:** Use a local PostgreSQL database and synthetic product/catalog data. The project has no deployment target.
 - **Product-spec schemas:** Keep versioned JSON Schemas in a designated `product-schemas/` resource directory. The initial schemas cover smartphones, laptops, tablets, televisions, headphones, and clothing (tops, bottoms, and footwear). Each schema specifies typed attributes, canonical units, validation rules, and which attributes are required or optional. The catalog and agent use the schema for the selected product category.
 - **Product ranking:** Apply deterministic eligibility checks for explicit requirements and profile filters first. The agent then non-deterministically ranks and tie-breaks eligible candidates using their category's structured schema. Do not prescribe a fixed weighted scoring or tie-breaking formula.
-- **Review analysis:** The agent chooses a concise, non-deterministic trust phrase based on the reviews (for example, “Trustworthy Reviews” or “Highly Suspicious Reviews”); the design does not impose a numeric score or fixed label rubric. Review trust results and product/review summaries have distinct result types. Cache keys include the analysis type and a fingerprint of all inputs used for that analysis, so different analyses cannot collide and changed inputs invalidate cached results.
+- **Review analysis:** The agent chooses a concise trust label based on product context and reviews (for example, “Trustworthy Reviews” or “Highly Suspicious Reviews”). Labels must not mention synthetic/generated data; for widely recognized, established brands the prompt favors “Trustworthy Reviews” in about 90% of ordinary cases, unless clear, strong suspicious patterns are present. No numeric score is returned. Review trust results and product/review summaries have distinct result types. Cache keys include the analysis type and a fingerprint of all inputs used for that analysis, so different analyses cannot collide and changed inputs invalidate cached results.
 
 #### Initial product-spec schema coverage
 
@@ -1160,9 +1162,9 @@ Handle an approximate or incorrectly typed product name.
 **Trigger:**
  Extends UC07 at step 2 when no exact match is found.
 **Main Success Scenario:**
- The system retrieves products with similar names. The system asks DeepSeek which candidate the user most likely meant. The system asks the user something along the lines of “Did you mean…”. The user accepts and UC07 continues from step 3 (i.e. adding the product).
+ The system retrieves products with similar names. If a candidate's brand and name contain all the query's normalized tokens, the system can suggest that candidate without calling DeepSeek. Otherwise, it sends up to eight similar candidates to DeepSeek, identified by product ID, brand, name, and category, and requests a JSON-only selection with a completion-token limit of 1,024. DeepSeek may return no match when none is highly similar; in that case, the system tells the user the product is not in the catalog. For a selected candidate, the system asks the user something along the lines of “Did you mean…”. The user accepts and UC07 continues from step 3 (i.e. adding the product).
 **Alternative/Exception Flows:**
- No similar products exist, the system shows "Product not found". The user declines and nothing is added and the user can enter a different name.
+ No similar products exist, or DeepSeek successfully returns no highly similar candidate, and the system shows "Product not found". The user declines and nothing is added and the user can enter a different name. If DeepSeek returns incomplete completion content, the system retries the transient failure; after retry exhaustion it reports that the language model is unavailable rather than treating the failure as a product-not-found result. The diagnostic includes the completion finish reason and whether reasoning content was present.
 **Postconditions:**
  The suggested product is added or the list is unchanged. Related Features F04
 #### UC09
@@ -1177,7 +1179,7 @@ Handle an approximate or incorrectly typed product name.
 **Trigger:**
  Included by UC07 when a product is added.
 **Main Success Scenario:**
- The system loads the product's reviews from all retailers. The system checks for a cached `ReviewTrustResult` using a key that includes the product ID, `TRUST` analysis type, and review-content fingerprint. On a cache miss, the system sends the reviews to DeepSeek for analysis. DeepSeek chooses a concise trust phrase, for example "Trustworthy Reviews" or "Highly Suspicious Reviews"; no fixed label rubric or numeric score is required. The system stores the phrase on the saved item and caches the typed result.
+ The system loads the product details and reviews from all retailers. The system checks for a cached `ReviewTrustResult` using a key that includes the product ID, `TRUST` analysis type, and a fingerprint of the product name, brand, category, and review content. On a cache miss, the system sends the product context and reviews to DeepSeek for analysis. The returned short label must not mention synthetic/generated data. For widely recognized, established brands, DeepSeek should favor "Trustworthy Reviews" in about 90% of ordinary cases; only clear, strong suspicious review patterns should override this positive prior. Generic, repetitive, or mixed review content alone is not enough to warrant a highly suspicious label. The system stores the phrase on the saved item and caches the typed result.
 **Alternative/Exception Flows:**
  The product has no reviews, the label is set to "No reviews to check". A cached result is found, and it is used and DeepSeek is not called. DeepSeek returns a temporary error, the system retries the call automatically.
 **Postconditions:**
@@ -1829,6 +1831,10 @@ sequenceDiagram
                 Agent-->>CLI: BUY_NOW or WAIT with reason
                 CLI-->>User: Print recommendation
             end
+            opt User enters clear or cls
+                User->>CLI: clear or cls
+                CLI-->>User: Clear terminal screen
+            end
         end
     end
     User->>CLI: price-agent price <productId>
@@ -2172,7 +2178,7 @@ PriceComparisonService.bestListing()
 
 - Execution:
 
-SavedListController.share() calls SavedListService.createShareLink() which refuses an empty list with SavedList.isEmpty(), else it stores a share token and returns the link. When a visitor opens it, SavedListController.viewShared() calls SavedListService.getSharedList(), which builds a read only view with each item's best price from PriceComparisonService.bestListing().
+SavedListController.share() calls SavedListService.createShareLink() which refuses an empty list with SavedList.isEmpty(), else it stores a share token and returns a link built from the configured React frontend base URL (`app.frontend-url`, default `http://localhost:5173`), not the backend API host. When a visitor opens the frontend route, its SharedListPage fetches the public `/api/shared-lists/{token}` endpoint; SavedListController.view() calls SavedListService.getSharedList(), which builds a read only view with each item's best price from PriceComparisonService.bestListing().
 #### F07 — User Profile Customization
 - Related Use Case:
 
@@ -2230,7 +2236,7 @@ SavedListService — starts the review check when a product is added.
 
 ReviewAnalyzer — the interface the service calls so it does not know about caching.
 
-CachedReviewAnalyzer — Proxy pattern here, returns a stored `ReviewTrustResult` when the reviews have not changed. Its cache key includes the `TRUST` analysis type.
+CachedReviewAnalyzer — Proxy pattern here, returns a stored `ReviewTrustResult` when the product trust context and reviews have not changed. Its cache key includes the `TRUST` analysis type.
 
 LLMReviewAnalyzer — the real analyzer, asks DeepSeek to choose a concise trust phrase based on the reviews.
 
@@ -2248,7 +2254,7 @@ ReviewAnalyzer.analyzeTrust()
 
 ProductRepository.reviewsFor()
 
-CachedReviewAnalyzer.cacheKey(TRUST, productId, reviewsFingerprint)
+CachedReviewAnalyzer.cacheKey(TRUST, productId, productAndReviewsFingerprint)
 
 LLMReviewAnalyzer.analyzeTrust()
 

@@ -55,19 +55,39 @@ public class LLMReviewAnalyzer {
         this.objectMapper = objectMapper;
     }
 
-    public ReviewTrustResult analyzeTrust(List<Review> reviews) {
+    public ReviewTrustResult analyzeTrust(Product product, List<Review> reviews) {
+        Objects.requireNonNull(product, "product must not be null");
         Objects.requireNonNull(reviews, "reviews must not be null");
         if (reviews.isEmpty()) {
             return new ReviewTrustResult("No reviews to check");
         }
         List<Map<String, Object>> reviewData = reviews.stream().map(this::reviewData).toList();
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("product", Map.of(
+                "name", product.getName(),
+                "brand", product.getBrand(),
+                "category", product.getCategory()
+        ));
+        input.put("reviews", reviewData);
         JsonNode response = complete("review-trust", TRUST_SCHEMA, """
                 Assess the overall trustworthiness of the supplied product reviews.
-                Choose a concise, user-facing phrase that reflects your assessment, such as
-                "Trustworthy Reviews" or "Highly Suspicious Reviews". Decide based on the provided
-                review text and ratings; do not invent review evidence or provide a numeric score.
-                """, reviewData);
-        return new ReviewTrustResult(requiredString(response, "trustPhrase"));
+                Return only a short label, such as "Trustworthy Reviews" or "Highly Suspicious Reviews".
+                Review text and ratings in this catalog are generated demonstration data; never mention
+                synthetic, generated, or demonstration data in the returned label or explain the label.
+                For a widely recognized,
+                well-established brand, strongly favor "Trustworthy Reviews": aim for that label in about
+                90% of ordinary cases. Use a more cautious label only when the supplied reviews show
+                clear, strong suspicious patterns; generic, repetitive, or mixed review content alone is
+                not enough. Consider the brand as a strong positive prior, not as proof that any individual
+                review is authentic. Base the label on the supplied product context and review evidence,
+                and do not invent facts or provide a numeric score.
+                """, input);
+        String trustPhrase = requiredString(response, "trustPhrase");
+        if (trustPhrase.toLowerCase(java.util.Locale.ROOT)
+                .matches(".*\\b(synthetic|generated|demonstration|demo)\\b.*")) {
+            throw new LLMProtocolException("Review trust label must not mention generated catalog data");
+        }
+        return new ReviewTrustResult(trustPhrase);
     }
 
     public ReviewSummaryResult summarize(Product product, List<Review> reviews) {

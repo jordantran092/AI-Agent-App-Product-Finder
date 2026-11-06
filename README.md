@@ -19,7 +19,7 @@ docker compose ps
 
 Compose publishes PostgreSQL only on `127.0.0.1:5432`, persists its data in the `postgres_data` named volume, and reports readiness through `pg_isready`. The local-development defaults are database `product_finder`, user `product_finder`, and password `product_finder_local`. You can override the user and password with `DB_USERNAME` and `DB_PASSWORD` environment variables. These defaults are for local development only.
 
-The backend reads `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` for its connection. `SESSION_TIMEOUT` controls the authenticated session lifetime (default `30m`); set `SESSION_COOKIE_SECURE=true` when serving over HTTPS. Keep the cookie secure flag disabled only for local HTTP development.
+The backend reads `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` for its connection. `FRONTEND_URL` sets the base URL used when generating public share links (default `http://localhost:5173`); configure it to the address where the React app is reachable by link recipients. `SESSION_TIMEOUT` controls the authenticated session lifetime (default `30m`); set `SESSION_COOKIE_SECURE=true` when serving over HTTPS. Keep the cookie secure flag disabled only for local HTTP development.
 
 DeepSeek calls are disabled until `DEEPSEEK_API_KEY` is set in the backend process environment. The backend defaults to the `deepseek-flash` model and `https://api.deepseek.com`. Optional settings include `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_CONNECT_TIMEOUT`, `DEEPSEEK_READ_TIMEOUT`, `DEEPSEEK_MAX_ATTEMPTS` (1–5 total attempts), `DEEPSEEK_INITIAL_BACKOFF`, and `DEEPSEEK_MAX_BACKOFF`. Do not commit API keys; structured responses are checked against the requested JSON Schema before they are returned to application callers.
 
@@ -47,6 +47,8 @@ Saved-product workflows use the authenticated `/api/saved-list` and `/api/produc
 
 In another terminal:
 
+Start from the repository root.
+
 ```powershell
 Set-Location frontend
 npm.cmd install
@@ -59,15 +61,19 @@ Vite serves the frontend at <http://localhost:5173> and proxies API and health r
 
 The Java CLI uses the same application services as the REST API and can be started instead of the web server after packaging:
 
+Start from the repository root.
+
 ```powershell
 Set-Location backend
 .\mvnw.cmd package
 java -jar target\product-finder-0.1.0-SNAPSHOT.jar --app.cli.enabled=true
 ```
 
-Use `register` or `login` first. The interactive CLI supports chat and requirement confirmation, buy/wait advice, saved-list add/remove and product details, best prices, review summaries, personal notes, profile settings, and share-link creation. Enter `help` to see all commands; use `exit` to quit. The `share` command prints a frontend link using `app.frontend-url` (default `http://localhost:5173`), so keep the React development server available when sharing.
+Use `register` or `login` first. The interactive CLI supports chat and requirement confirmation, buy/wait advice, saved-list add/remove and product details, best prices, review summaries, personal notes, profile settings, and share-link creation. Enter `help` to see all commands; use `clear` or `cls` to clear the terminal screen and `exit` to quit. Windows uses its native `cls` command; other platforms use ANSI escape sequences, so use an ANSI-compatible terminal there. The `share` command prints a frontend link using `app.frontend-url` (default `http://localhost:5173`), so keep the React development server available when sharing.
 
 ## Tests and checks
+
+Start from the repository root.
 
 ```powershell
 Set-Location backend

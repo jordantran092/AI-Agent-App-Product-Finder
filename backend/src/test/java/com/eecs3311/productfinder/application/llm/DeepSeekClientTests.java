@@ -127,6 +127,56 @@ class DeepSeekClientTests {
     }
 
     @Test
+    void retriesAnIncompleteProviderCompletionAndReturnsTheNextValidResponse() {
+        String incompleteCompletion = """
+                {
+                  "model": "deepseek-chat",
+                  "choices": [{"message": {"content": ""}, "finish_reason": "stop"}]
+                }
+                """;
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.deepseek.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(API_URL)).andRespond(withSuccess(incompleteCompletion, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(API_URL)).andRespond(withSuccess(VALID_COMPLETION, MediaType.APPLICATION_JSON));
+        RetryingLLMClient retryingClient = new RetryingLLMClient(
+                client(builder, properties("unit-test-key")),
+                2,
+                Duration.ZERO,
+                Duration.ZERO
+        );
+
+        assertThat(retryingClient.complete(textRequest()).content()).isEqualTo("{\"answer\":\"ready\"}");
+        server.verify();
+    }
+
+    @Test
+    void reportsWhichCompletionFieldsStayedMissingAfterRetries() {
+        String incompleteCompletion = """
+                {
+                  "model": "deepseek-chat",
+                  "choices": [{"message": {"content": ""}, "finish_reason": "stop"}]
+                }
+                """;
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.deepseek.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(API_URL)).andRespond(withSuccess(incompleteCompletion, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(API_URL)).andRespond(withSuccess(incompleteCompletion, MediaType.APPLICATION_JSON));
+        RetryingLLMClient retryingClient = new RetryingLLMClient(
+                client(builder, properties("unit-test-key")),
+                2,
+                Duration.ZERO,
+                Duration.ZERO
+        );
+
+        assertThatThrownBy(() -> retryingClient.complete(textRequest()))
+                .isInstanceOf(LLMUnavailableException.class)
+                .hasMessageContaining("choices[0].message.content")
+                .hasMessageContaining("finish_reason=stop")
+                .hasMessageContaining("reasoning_content_present=false");
+        server.verify();
+    }
+
+    @Test
     void doesNotClassifyAuthenticationErrorsAsTransient() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.deepseek.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

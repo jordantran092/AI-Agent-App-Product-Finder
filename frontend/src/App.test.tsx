@@ -192,7 +192,9 @@ describe("Product Finder user flows", () => {
     await screen.findByText("What are you looking for?");
     await user.type(screen.getByLabelText("Your product requirements"), "Something useful");
     await user.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByText("What kind of product do you need?", { selector: ".callout" })).toBeInTheDocument();
+    expect(await screen.findByText("What kind of product do you need?", { selector: ".chat-message p" }))
+      .toBeInTheDocument();
+    expect(screen.queryByText("What kind of product do you need?", { selector: ".callout" })).not.toBeInTheDocument();
     expect(api.confirmRequirements).not.toHaveBeenCalled();
 
     vi.mocked(api.sendMessage).mockResolvedValue(confirmingChat);
@@ -359,6 +361,27 @@ describe("Product Finder user flows", () => {
     expect(api.confirmSuggestedProduct).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Share list" })).toBeDisabled();
     expect(screen.getByText("Your list is empty")).toBeInTheDocument();
+  });
+
+  it("explains when no similar catalog product exists", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.savedList).mockResolvedValue({ items: [] });
+    vi.mocked(api.addProduct).mockResolvedValue({
+      status: "NOT_FOUND",
+      product: null,
+      trustLabel: null,
+      message: "This product does not exist in our catalog. Try a different product name.",
+    });
+
+    renderSignedIn();
+    await screen.findByText("What are you looking for?");
+    await user.click(screen.getByRole("button", { name: "Saved list" }));
+    await user.type(await screen.findByLabelText("Add a product by name"), "iPhone 15");
+    await user.click(screen.getByRole("button", { name: "Find product" }));
+
+    expect(await screen.findByRole("status"))
+      .toHaveTextContent("This product does not exist in our catalog. Try a different product name.");
+    expect(screen.queryByRole("region", { name: "Suggested product" })).not.toBeInTheDocument();
   });
 
   it("shows product review summary and saves personal notes", async () => {

@@ -28,15 +28,17 @@ class CachedReviewAnalyzerTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void cachesTrustResultsAndRecomputesWhenReviewContentChanges() {
+    void cachesTrustResultsAndRecomputesWhenReviewContentChanges() throws Exception {
         ReviewRepository reviews = mock(ReviewRepository.class);
         ProductRepository products = mock(ProductRepository.class);
         LLMReviewAnalyzer delegate = mock(LLMReviewAnalyzer.class);
         Review first = review("Retailer A", "Good phone.");
         Review changed = review("Retailer A", "Poor phone.");
+        Product product = product(5L, "Description");
         when(reviews.findByProductIdOrderByReviewedAtDesc(5L))
                 .thenReturn(List.of(first), List.of(first), List.of(changed));
-        when(delegate.analyzeTrust(anyList())).thenReturn(
+        when(products.findProductWithListingsById(5L)).thenReturn(Optional.of(product));
+        when(delegate.analyzeTrust(any(Product.class), anyList())).thenReturn(
                 new ReviewTrustResult("Trustworthy Reviews"),
                 new ReviewTrustResult("Highly Suspicious Reviews"));
         CachedReviewAnalyzer analyzer = new CachedReviewAnalyzer(reviews, products, delegate, objectMapper);
@@ -45,7 +47,29 @@ class CachedReviewAnalyzerTests {
         assertThat(analyzer.analyzeTrust(5).trustPhrase()).isEqualTo("Trustworthy Reviews");
         assertThat(analyzer.analyzeTrust(5).trustPhrase()).isEqualTo("Highly Suspicious Reviews");
 
-        verify(delegate, times(2)).analyzeTrust(anyList());
+        verify(delegate, times(2)).analyzeTrust(any(Product.class), anyList());
+    }
+
+    @Test
+    void trustCacheInvalidatesWhenProductBrandChanges() throws Exception {
+        ReviewRepository reviews = mock(ReviewRepository.class);
+        ProductRepository products = mock(ProductRepository.class);
+        when(reviews.findByProductIdOrderByReviewedAtDesc(15L)).thenReturn(
+                List.of(review("Retailer A", "Good phone.")),
+                List.of(review("Retailer A", "Good phone.")));
+        when(products.findProductWithListingsById(15L)).thenReturn(
+                Optional.of(productWithBrand(15L, "Brand A")),
+                Optional.of(productWithBrand(15L, "Brand B")));
+        LLMReviewAnalyzer delegate = mock(LLMReviewAnalyzer.class);
+        when(delegate.analyzeTrust(any(Product.class), anyList())).thenReturn(
+                new ReviewTrustResult("Trustworthy Reviews"),
+                new ReviewTrustResult("Mixed Review Signals"));
+        CachedReviewAnalyzer analyzer = new CachedReviewAnalyzer(reviews, products, delegate, objectMapper);
+
+        assertThat(analyzer.analyzeTrust(15).trustPhrase()).isEqualTo("Trustworthy Reviews");
+        assertThat(analyzer.analyzeTrust(15).trustPhrase()).isEqualTo("Mixed Review Signals");
+
+        verify(delegate, times(2)).analyzeTrust(any(Product.class), anyList());
     }
 
     @Test
@@ -121,6 +145,13 @@ class CachedReviewAnalyzerTests {
     private static Product product(long id, String description) throws Exception {
         Product product = new Product("Phone", "Brand", "M-1", ProductCategory.SMARTPHONE, description,
                 null, Map.of("storageGb", 128));
+        setId(product, id);
+        return product;
+    }
+
+    private static Product productWithBrand(long id, String brand) throws Exception {
+        Product product = new Product("Phone", brand, "M-1", ProductCategory.SMARTPHONE, "Description",
+                null, Map.of());
         setId(product, id);
         return product;
     }

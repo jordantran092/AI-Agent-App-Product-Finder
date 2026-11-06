@@ -279,6 +279,14 @@ class PostgresRepositoryIntegrationTests {
         mockMvc.perform(get("/api/saved-list").session(ownerSession))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(0));
+
+        mockMvc.perform(post("/api/saved-list/items").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productName\":\"An Unknown Quantum Spaceship 999\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value(
+                        "This product does not exist in our catalog. Try a different product name."));
     }
 
     @Test
@@ -298,7 +306,8 @@ class PostgresRepositoryIntegrationTests {
         MvcResult shareResult = mockMvc.perform(post("/api/saved-list/share")
                         .session(ownerSession).with(csrf()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.shareUrl").value(org.hamcrest.Matchers.containsString("/shared/")))
+                .andExpect(jsonPath("$.shareUrl").value(
+                        org.hamcrest.Matchers.startsWith("http://localhost:5173/shared/")))
                 .andReturn();
         String token = com.jayway.jsonpath.JsonPath.read(
                 shareResult.getResponse().getContentAsString(), "$.shareToken");

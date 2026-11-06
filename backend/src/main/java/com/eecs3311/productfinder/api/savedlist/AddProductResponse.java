@@ -9,7 +9,7 @@ public record AddProductResponse(String status, ProductSummaryResponse product, 
             case ADDED -> "Product added to your saved list";
             case ALREADY_SAVED -> "Product is already in your saved list";
             case SUGGESTION -> "Did you mean this product? Confirm to add it";
-            case NOT_FOUND -> "Product not found";
+            case NOT_FOUND -> "This product does not exist in our catalog. Try a different product name.";
         };
         ProductSummaryResponse product = result.product() == null
                 ? null : ProductSummaryResponse.from(result.product());

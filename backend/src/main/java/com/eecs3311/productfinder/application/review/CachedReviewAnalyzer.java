@@ -41,9 +41,13 @@ public class CachedReviewAnalyzer implements ReviewAnalyzer {
 
     @Override
     public ReviewTrustResult analyzeTrust(long productId) {
+        Product product = productRepository.findProductWithListingsById(productId)
+                .orElseThrow(() -> new ProductNotFoundException(productId));
         List<Review> reviews = sortedReviews(reviewRepository.findByProductIdOrderByReviewedAtDesc(productId));
-        ReviewAnalysisCacheKey key = cacheKey(productId, ReviewAnalysisType.TRUST, reviewFingerprint(reviews));
-        return (ReviewTrustResult) cache.computeIfAbsent(key, ignored -> delegate.analyzeTrust(reviews));
+        ReviewAnalysisCacheKey key = cacheKey(productId, ReviewAnalysisType.TRUST,
+                trustFingerprint(product, reviews));
+        return (ReviewTrustResult) cache.computeIfAbsent(key,
+                ignored -> delegate.analyzeTrust(product, reviews));
     }
 
     @Override
@@ -108,6 +112,15 @@ public class CachedReviewAnalyzer implements ReviewAnalyzer {
                     offers.add(offer);
                 });
         content.put("pricedRetailerOffers", offers);
+        content.put("reviews", reviewFingerprintContent(reviews));
+        return fingerprint(content);
+    }
+
+    private String trustFingerprint(Product product, List<Review> reviews) {
+        Map<String, Object> content = new LinkedHashMap<>();
+        content.put("name", product.getName());
+        content.put("brand", product.getBrand());
+        content.put("category", product.getCategory());
         content.put("reviews", reviewFingerprintContent(reviews));
         return fingerprint(content);
     }

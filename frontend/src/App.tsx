@@ -338,7 +338,6 @@ function ChatWorkspace({
               </article>
             )) : <p className="empty-state">Start with a product category, what matters to you, and your budget.</p>}
           </div>
-          {chat?.followUpQuestion && <p className="callout">{chat.followUpQuestion}</p>}
           <form className="composer" onSubmit={send}>
             <label className="visually-hidden" htmlFor="chat-message">Your product requirements</label>
             <textarea id="chat-message" rows={3} maxLength={4000} value={text}

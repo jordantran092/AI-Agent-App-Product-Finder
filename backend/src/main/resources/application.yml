@@ -26,6 +26,9 @@ product-finder:
     initial-backoff: ${DEEPSEEK_INITIAL_BACKOFF:250ms}
     max-backoff: ${DEEPSEEK_MAX_BACKOFF:2s}
 
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+
 server:
   port: ${SERVER_PORT:8080}
   servlet:

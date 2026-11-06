@@ -8,8 +8,9 @@ import com.eecs3311.productfinder.application.llm.LLMRequest;
 import com.eecs3311.productfinder.application.llm.LLMResponse;
 import com.eecs3311.productfinder.application.llm.LLMResponseFormat;
 import com.eecs3311.productfinder.application.llm.LLMRole;
-import com.eecs3311.productfinder.application.llm.LLMTokenUsage;
 import com.eecs3311.productfinder.application.llm.StructuredOutputValidator;
+import com.eecs3311.productfinder.application.llm.LLMTokenUsage;
+import com.eecs3311.productfinder.application.llm.TransientLLMException;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -102,8 +103,28 @@ public class DeepSeekClient implements LLMClient {
         String content = textValue(message == null ? null : message.get("content"));
         String model = textValue(root.get("model"));
         String finishReason = textValue(choice.get("finish_reason"));
-        if (content == null || content.isBlank() || model == null || finishReason == null) {
-            throw new LLMProtocolException("DeepSeek response is missing completion content or metadata");
+        List<String> missingFields = new ArrayList<>();
+        if (content == null || content.isBlank()) {
+            missingFields.add("choices[0].message.content");
+        }
+        if (model == null || model.isBlank()) {
+            missingFields.add("model");
+        }
+        if (finishReason == null || finishReason.isBlank()) {
+            missingFields.add("choices[0].finish_reason");
+        }
+        if (!missingFields.isEmpty()) {
+            String completionDiagnostics = content == null || content.isBlank()
+                    ? "; finish_reason=" + finishReason
+                            + ", reasoning_content_present="
+                            + (message != null && message.get("reasoning_content") != null
+                            && !message.get("reasoning_content").isNull())
+                    : "";
+            throw new TransientLLMException(
+                    "DeepSeek returned an incomplete completion; missing or blank fields: "
+                            + String.join(", ", missingFields) + completionDiagnostics,
+                    null
+            );
         }
         return new LLMResponse(content, model, finishReason, readUsage(root.get("usage")));
     }

@@ -66,8 +66,7 @@ public class SavedListController {
     private ResponseEntity<AddProductResponse> addResponse(ProductAddResult result) {
         HttpStatus status = switch (result.status()) {
             case ADDED -> HttpStatus.CREATED;
-            case ALREADY_SAVED, SUGGESTION -> HttpStatus.OK;
-            case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case ALREADY_SAVED, SUGGESTION, NOT_FOUND -> HttpStatus.OK;
         };
         return ResponseEntity.status(status).body(AddProductResponse.from(result));
     }

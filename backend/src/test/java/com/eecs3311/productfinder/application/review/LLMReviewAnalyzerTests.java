@@ -33,13 +33,23 @@ class LLMReviewAnalyzerTests {
                 "{\"trustPhrase\":\"Mixed Review Signals\"}"));
         LLMReviewAnalyzer analyzer = new LLMReviewAnalyzer(llmClient, objectMapper);
 
-        ReviewTrustResult result = analyzer.analyzeTrust(List.of(review("Retailer A", "Works well.")));
+        Product product = new Product("iPhone 16", "Apple", "A3081", ProductCategory.SMARTPHONE,
+                "Test phone.", null, Map.of());
+        ReviewTrustResult result = analyzer.analyzeTrust(product, List.of(review("Retailer A", "Works well.")));
 
         assertThat(result.trustPhrase()).isEqualTo("Mixed Review Signals");
         ArgumentCaptor<LLMRequest> request = ArgumentCaptor.forClass(LLMRequest.class);
         verify(llmClient).complete(request.capture());
         assertThat(request.getValue().outputSchema().name()).isEqualTo("review-trust");
-        assertThat(request.getValue().messages().getFirst().content()).contains("concise");
+        assertThat(request.getValue().messages().getFirst().content())
+                .contains("about")
+                .contains("90%")
+                .contains("never mention")
+                .contains("strong positive prior")
+                .contains("not as proof");
+        assertThat(request.getValue().messages().get(1).content())
+                .contains("\"brand\":\"Apple\"")
+                .contains("\"name\":\"iPhone 16\"");
     }
 
     @Test
@@ -47,7 +57,9 @@ class LLMReviewAnalyzerTests {
         LLMClient llmClient = mock(LLMClient.class);
         LLMReviewAnalyzer analyzer = new LLMReviewAnalyzer(llmClient, objectMapper);
 
-        assertThat(analyzer.analyzeTrust(List.of()).trustPhrase()).isEqualTo("No reviews to check");
+        Product product = new Product("Phone", "Brand", "M-1", ProductCategory.SMARTPHONE,
+                "Description", null, Map.of());
+        assertThat(analyzer.analyzeTrust(product, List.of()).trustPhrase()).isEqualTo("No reviews to check");
 
         verifyNoInteractions(llmClient);
     }
@@ -82,10 +94,26 @@ class LLMReviewAnalyzerTests {
         LLMClient llmClient = mock(LLMClient.class);
         when(llmClient.complete(any(LLMRequest.class))).thenReturn(response("{\"trustPhrase\":\" \"}"));
         LLMReviewAnalyzer analyzer = new LLMReviewAnalyzer(llmClient, objectMapper);
+        Product product = new Product("Phone", "Brand", "M-1", ProductCategory.SMARTPHONE,
+                "Description", null, Map.of());
 
-        assertThatThrownBy(() -> analyzer.analyzeTrust(List.of(review("Retailer A", "Review."))))
+        assertThatThrownBy(() -> analyzer.analyzeTrust(product, List.of(review("Retailer A", "Review."))))
                 .isInstanceOf(com.eecs3311.productfinder.application.llm.LLMProtocolException.class)
                 .hasMessageContaining("trustPhrase");
+    }
+
+    @Test
+    void rejectsTrustLabelsThatMentionGeneratedCatalogData() {
+        LLMClient llmClient = mock(LLMClient.class);
+        when(llmClient.complete(any(LLMRequest.class)))
+                .thenReturn(response("{\"trustPhrase\":\"Synthetic Reviews\"}"));
+        LLMReviewAnalyzer analyzer = new LLMReviewAnalyzer(llmClient, objectMapper);
+        Product product = new Product("Phone", "Brand", "M-1", ProductCategory.SMARTPHONE,
+                "Description", null, Map.of());
+
+        assertThatThrownBy(() -> analyzer.analyzeTrust(product, List.of(review("Retailer A", "Review."))))
+                .isInstanceOf(com.eecs3311.productfinder.application.llm.LLMProtocolException.class)
+                .hasMessageContaining("must not mention generated catalog data");
     }
 
     private static Review review(String retailer, String text) {

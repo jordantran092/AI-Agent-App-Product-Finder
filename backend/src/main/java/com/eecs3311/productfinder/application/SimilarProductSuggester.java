@@ -26,6 +26,7 @@ import java.util.Optional;
 public class SimilarProductSuggester {
 
     private static final int MAX_CANDIDATES = 8;
+    private static final int MAX_COMPLETION_TOKENS = 1024;
     private static final double MIN_SIMILARITY = 0.35;
     private static final String OUTPUT_SCHEMA = """
             {
@@ -34,7 +35,7 @@ public class SimilarProductSuggester {
               "additionalProperties": false,
               "required": ["productId"],
               "properties": {
-                "productId": {"type": "integer", "minimum": 1}
+                "productId": {"type": ["integer", "null"], "minimum": 1}
               }
             }
             """;
@@ -52,32 +53,51 @@ public class SimilarProductSuggester {
 
     public Optional<Product> suggest(String productName) {
         Objects.requireNonNull(productName, "productName must not be null");
-        List<Product> candidates = productRepository.findAll().stream()
+        List<Candidate> rankedCandidates = productRepository.findAll().stream()
                 .map(product -> new Candidate(product, similarity(productName, product)))
                 .filter(candidate -> candidate.similarity() >= MIN_SIMILARITY)
                 .sorted(Comparator.comparingDouble(Candidate::similarity).reversed()
                         .thenComparing(candidate -> candidate.product().getModel()))
-                .limit(MAX_CANDIDATES)
-                .map(Candidate::product)
                 .toList();
-        if (candidates.isEmpty()) {
+        if (rankedCandidates.isEmpty()) {
             return Optional.empty();
         }
 
+        List<String> queryTokens = tokens(productName);
+        Optional<Product> exactNameMatch = rankedCandidates.stream()
+                .filter(candidate -> containsAllTokens(candidate.product(), queryTokens))
+                .map(Candidate::product)
+                .findFirst();
+        if (exactNameMatch.isPresent()) {
+            return exactNameMatch;
+        }
+
+        List<Product> candidates = rankedCandidates.stream()
+                .limit(MAX_CANDIDATES)
+                .map(Candidate::product)
+                .toList();
         JsonNode response = parseObject(llmClient.complete(new LLMRequest(
                 List.of(
                         new LLMMessage(LLMRole.SYSTEM, """
-                                Choose the one catalog product whose brand and product name most closely match
-                                the user's product-name query. The query may be a rough name or contain a typo.
-                                Choose only from the provided candidates and return its exact productId as JSON.
+                                Decide whether any candidate is a highly similar match for the user's product-name
+                                query. The query may be a rough name or contain a typo. Only select a candidate
+                                when its product name and brand are a strong match; otherwise return
+                                {"productId":null}. Choose only from the provided candidates and return only the
+                                exact productId as JSON when selecting a match; do not include an explanation.
                                 """),
                         new LLMMessage(LLMRole.USER, writePrompt(productName, candidates))
                 ),
-                new LLMOptions(0.7, 200, LLMResponseFormat.JSON_OBJECT),
+                new LLMOptions(0.7, MAX_COMPLETION_TOKENS, LLMResponseFormat.JSON_OBJECT),
                 new LLMOutputSchema("similar-product", OUTPUT_SCHEMA)
         )).content());
         JsonNode productId = response.get("productId");
-        if (productId == null || !productId.canConvertToLong()) {
+        if (productId == null) {
+            throw new LLMProtocolException("Similar-product suggestion returned an invalid productId");
+        }
+        if (productId.isNull()) {
+            return Optional.empty();
+        }
+        if (!productId.canConvertToLong() || productId.longValue() < 1) {
             throw new LLMProtocolException("Similar-product suggestion returned an invalid productId");
         }
         long selectedId = productId.longValue();
@@ -98,7 +118,6 @@ public class SimilarProductSuggester {
             candidate.put("brand", product.getBrand());
             candidate.put("name", product.getName());
             candidate.put("category", product.getCategory());
-            candidate.put("attributes", product.getAttributes());
             return candidate;
         }).toList());
         try {
@@ -136,6 +155,11 @@ public class SimilarProductSuggester {
         double phraseSimilarity = editSimilarity(normalize(productName),
                 normalize(product.getBrand() + " " + product.getName()));
         return Math.max(tokenSimilarity, phraseSimilarity);
+    }
+
+    private boolean containsAllTokens(Product product, List<String> queryTokens) {
+        List<String> productTokens = tokens(product.getBrand() + " " + product.getName());
+        return !queryTokens.isEmpty() && productTokens.containsAll(queryTokens);
     }
 
     private double editSimilarity(String first, String second) {

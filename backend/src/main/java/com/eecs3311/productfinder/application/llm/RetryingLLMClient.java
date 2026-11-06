@@ -52,7 +52,11 @@ public class RetryingLLMClient implements LLMClient {
                 }
             }
         }
-        throw new LLMUnavailableException("The language model is temporarily unavailable", lastFailure);
+        throw new LLMUnavailableException(
+                "The language model is unavailable after " + maxAttempts + " attempts: "
+                        + lastFailure.getMessage(),
+                lastFailure
+        );
     }
 
     private Duration backoffFor(int failedAttempt) {
