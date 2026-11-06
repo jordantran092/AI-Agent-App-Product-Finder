@@ -206,6 +206,8 @@ input:focus, textarea:focus, select:focus { border-color: #69a08c; box-shadow: 0
 .requirements-list dt, .spec-list dt { color: var(--muted); font-size: 12px; }
 .requirements-list dd, .spec-list dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .requirements-list code { font-size: 11px; }
+.attribute-list { display: grid; gap: 5px; margin: 0; padding-left: 17px; }
+.attribute-list li { line-height: 1.45; }
 .result-card > p:not(.eyebrow) { line-height: 1.6; }
 .offer-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0; padding: 13px 14px; border-radius: 10px; background: #f1f6f3; font-size: 13px; }
 .offer-line strong { color: var(--green-dark); text-align: right; }

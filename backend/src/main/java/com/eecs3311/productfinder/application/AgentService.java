@@ -248,7 +248,8 @@ public class AgentService {
             text.append(", maximum price ").append(requirements.maxPrice());
         }
         if (!requirements.attributes().isEmpty()) {
-            text.append(", specifications ").append(requirements.attributes());
+            text.append(", category-specific details: ")
+                    .append(CategoryAttributeFormatter.format(requirements.attributes()));
         }
         if (!requirements.mustHaves().isEmpty()) {
             text.append(", must-haves ").append(requirements.mustHaves());

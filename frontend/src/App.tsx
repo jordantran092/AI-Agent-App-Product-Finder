@@ -399,7 +399,14 @@ function RequirementsSummary({ requirements }: { requirements: NonNullable<ChatR
       <div><dt>Nice to have</dt><dd>{requirements.niceToHaves.join(", ") || "None"}</dd></div>
       <div><dt>Excluded brands</dt><dd>{requirements.excludedBrands.join(", ") || "None"}</dd></div>
       {Object.keys(requirements.attributes).length > 0 && (
-        <div><dt>Category-specific details</dt><dd><code>{JSON.stringify(requirements.attributes)}</code></dd></div>
+        <div>
+          <dt>Category-specific details</dt>
+          <dd><ul className="attribute-list">
+            {Object.entries(requirements.attributes).map(([key, value]) => (
+              <li key={key}><strong>{formatAttributeLabel(key)}</strong>: {formatAttributeValue(key, value)}</li>
+            ))}
+          </ul></dd>
+        </div>
       )}
     </dl>
   );
@@ -660,7 +667,7 @@ function ProductPage({
         <h2>Specifications</h2>
         <dl className="spec-list">
           {Object.entries(product.attributes).map(([key, value]) => (
-            <div key={key}><dt>{humanize(key)}</dt><dd>{displayValue(value)}</dd></div>
+            <div key={key}><dt>{formatAttributeLabel(key)}</dt><dd>{formatAttributeValue(key, value)}</dd></div>
           ))}
         </dl>
       </article>
@@ -844,6 +851,31 @@ function humanize(value: string): string {
   return value.toLowerCase().split(/[_\s]+/).map((part) => part ? part[0].toUpperCase() + part.slice(1) : "").join(" ");
 }
 
-function displayValue(value: unknown): string {
-  return value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
+function formatAttributeLabel(key: string): string {
+  const suffix = /(?:Gb|Mah|Inches|Hz|Hours)$/;
+  return humanize(key.replace(suffix, ""));
+}
+
+function formatAttributeValue(key: string, value: unknown): string {
+  let unit = "";
+  if (key.endsWith("Gb")) unit = " GB";
+  else if (key.endsWith("Mah")) unit = " mAh";
+  else if (key.endsWith("Inches")) unit = " inches";
+  else if (key.endsWith("Hz")) unit = " Hz";
+  else if (key.endsWith("Hours")) unit = " hours";
+
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.map(formatSimpleValue).join(", ");
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value)
+      .map(([name, nestedValue]) => `${formatAttributeLabel(name)}: ${formatSimpleValue(nestedValue)}`)
+      .join(", ");
+  }
+  return `${formatSimpleValue(value)}${unit}`;
+}
+
+function formatSimpleValue(value: unknown): string {
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string" && value.includes("_")) return humanize(value);
+  return String(value);
 }

@@ -153,6 +153,9 @@ describe("Product Finder user flows", () => {
     await user.type(screen.getByLabelText("Your product requirements"), "A phone under $700");
     await user.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText("Does this look right?")).toBeInTheDocument();
+    expect(screen.getByText("Storage")).toBeInTheDocument();
+    expect(screen.getByRole("listitem").textContent).toContain("Storage: 128 GB");
+    expect(screen.queryByText('{"storageGb":128}')).not.toBeInTheDocument();
     expect(api.confirmRequirements).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm and search" }));
     await waitFor(() => expect(api.confirmRequirements).toHaveBeenCalledOnce());

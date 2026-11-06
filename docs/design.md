@@ -954,7 +954,7 @@ Included by UC01 after UC02 finishes
 
 **Main Success Scenario:**
 
-The system shows the pending requirements in a confirmation dialog.
+The system shows the pending requirements in a confirmation dialog. Category-specific attributes are displayed as readable labels and values, with units where applicable, rather than serialized JSON.
 
 The user confirms.
 
