@@ -211,6 +211,7 @@ input:focus, textarea:focus, select:focus { border-color: #69a08c; box-shadow: 0
 .result-card > p:not(.eyebrow) { line-height: 1.6; }
 .offer-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0; padding: 13px 14px; border-radius: 10px; background: #f1f6f3; font-size: 13px; }
 .offer-line strong { color: var(--green-dark); text-align: right; }
+.saved-offer-line { flex-wrap: wrap; }
 .urgency-control { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .urgency-control select { min-height: 36px; width: auto; padding: 6px 8px; }
 
@@ -233,6 +234,10 @@ input:focus, textarea:focus, select:focus { border-color: #69a08c; box-shadow: 0
 .empty-panel h1, .empty-panel h2 { margin-top: 0; color: var(--ink); font-family: ui-sans-serif, system-ui, sans-serif; }
 
 .detail-card { margin-top: 15px; }
+.detail-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; }
+.detail-header .saved-offer-button { grid-column: 2; grid-row: 1; justify-self: end; }
+.detail-header .product-summary { grid-column: 1; grid-row: 1; }
+.detail-header .product-summary > div:last-child { min-width: 0; overflow-wrap: anywhere; }
 .detail-card > p { line-height: 1.7; }
 .detail-card .product-image { width: 108px; height: 108px; flex-basis: 108px; }
 .detail-card .product-summary h2 { font-size: 24px; }
@@ -300,6 +305,9 @@ fieldset p { margin: 2px 0 12px; }
   .button-row { flex-wrap: wrap; }
   .offer-line { align-items: flex-start; flex-direction: column; }
   .offer-line strong { text-align: left; }
+  .detail-header { grid-template-columns: minmax(0, 1fr); }
+  .detail-header .saved-offer-button { grid-column: 1; }
+  .detail-header .product-summary { grid-row: 2; }
   .chat-history { max-height: 50vh; padding: 15px; }
   .chat-message { max-width: 96%; }
   .card { padding: 17px; }

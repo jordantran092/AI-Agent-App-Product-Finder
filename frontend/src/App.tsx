@@ -7,6 +7,7 @@ import {
   type ChatResponse,
   type Product,
   type ProductPage as ProductPageData,
+  type Offer,
   type SavedItem,
   type SharedProduct,
 } from "./api";
@@ -127,6 +128,7 @@ export default function App() {
 
       {selectedProductId !== null ? (
         <ProductPage
+          key={selectedProductId}
           productId={selectedProductId}
           onBack={() => setSelectedProductId(null)}
           onRemoved={() => setSelectedProductId(null)}
@@ -289,10 +291,10 @@ function ChatWorkspace({
     await run(() => api.sendMessage(message));
   };
 
-  const saveMatch = async (product: Pick<Product, "name">) => {
+  const saveMatch = async (product: NonNullable<ChatResponse["match"]>) => {
     setBusy(true);
     try {
-      const result = await api.addProduct(product.name);
+      const result = await api.saveRecommendation(product.productId);
       setNotice(result.message);
       if (result.status === "ADDED" || result.status === "ALREADY_SAVED") onSaved();
     } catch (error) {
@@ -541,11 +543,11 @@ function SavedList({
           onClick={() => void createShareLink()}>Share list</button>
       </div>
       <form className="add-product-form card" onSubmit={add}>
-        <label htmlFor="product-name">Add a product by name</label>
+        <label htmlFor="product-name">Add a product</label>
         <div className="inline-form">
           <input id="product-name" value={productName} maxLength={200}
             onChange={(event) => setProductName(event.target.value)}
-            placeholder="e.g. iPhone 15" required />
+            placeholder="Enter a product model name" required />
           <button className="button button-primary" disabled={busy || !productName.trim()}>Find product</button>
         </div>
       </form>
@@ -620,7 +622,9 @@ function ProductPage({
   const [page, setPage] = useState<ProductPageData | null>(null);
   const [note, setNote] = useState("");
   const [summary, setSummary] = useState("");
+  const [priceResult, setPriceResult] = useState<{ bestOffer: Offer | null } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [priceBusy, setPriceBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -628,6 +632,7 @@ function ProductPage({
     api.productPage(productId).then((result) => {
       if (!active) return;
       setPage(result);
+      setPriceResult(result.savedOffer ? { bestOffer: result.savedOffer } : null);
       setNote(result.note ?? "");
       if (result.discontinued) {
         setNotice("This product has been discontinued and was removed from your saved list.");
@@ -665,6 +670,23 @@ function ProductPage({
     }
   };
 
+  const findBestPrice = async () => {
+    setPriceBusy(true);
+    setPriceResult(null);
+    try {
+      setPriceResult(await api.bestPrice(productId));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 410) {
+        setNotice("This product has been discontinued and was removed from your saved list.");
+        setPage({ discontinued: true, product: null, note: null, trustLabel: null, savedOffer: null });
+      } else {
+        onError(messageFor(error));
+      }
+    } finally {
+      setPriceBusy(false);
+    }
+  };
+
   if (!page) return <section className="page-section"><p role="status">Loading product…</p></section>;
   if (page.discontinued || !page.product) {
     return <section className="page-section">
@@ -677,13 +699,18 @@ function ProductPage({
     <section className="page-section">
       <button className="button button-quiet" onClick={onBack}>← Saved products</button>
       <article className="card detail-card">
-        <ProductSummary product={product} />
+        <div className="detail-header">
+          <button type="button" className="button button-secondary saved-offer-button" disabled={busy || priceBusy}
+            onClick={() => void findBestPrice()}>{priceBusy ? "Finding best price…" : "Find best price"}</button>
+          <ProductSummary product={product} />
+        </div>
         <p>{product.description}</p>
-        <div className="offer-line">
-          <span>Best eligible offer</span>
-          <strong>{page.bestOffer
-            ? `${page.bestOffer.retailer} · ${formatPrice(page.bestOffer.price)} (${humanize(page.bestOffer.condition)})`
-            : "No retailer currently meets your settings"}</strong>
+        <div className="offer-line saved-offer-line">
+          <span>{priceResult && page.savedOffer && priceResult.bestOffer === page.savedOffer
+            ? "Offer from recommendation (may have changed)" : "Best price right now:"}</span>
+          {priceResult && <strong>{priceResult.bestOffer
+            ? `${priceResult.bestOffer.retailer} · ${formatPrice(priceResult.bestOffer.price)} (${humanize(priceResult.bestOffer.condition)})`
+            : "No retailer currently meets your settings"}</strong>}
         </div>
         <div className="trust-label">Review trust: {page.trustLabel ?? "Not available"}</div>
         <h2>Specifications</h2>
@@ -696,7 +723,7 @@ function ProductPage({
       <div className="detail-grid">
         <section className="card">
           <div className="section-title-row"><div><p className="eyebrow">REVIEW INSIGHTS</p><h2>Product summary</h2></div>
-            <button className="button button-secondary" disabled={busy} onClick={() => void getSummary()}>
+            <button className="button button-secondary" disabled={busy || priceBusy} onClick={() => void getSummary()}>
               {busy ? "Working…" : "Summarize"}
             </button></div>
           {summary ? <p className="summary-text">{summary}</p> : <p className="muted">Generate a concise summary of product information and reviews.</p>}
@@ -706,7 +733,7 @@ function ProductPage({
           <label htmlFor="product-note">Your note</label>
           <textarea id="product-note" rows={5} maxLength={4000} value={note}
             onChange={(event) => setNote(event.target.value)} />
-          <button className="button button-primary" disabled={busy}>Save note</button>
+          <button className="button button-primary" disabled={busy || priceBusy}>Save note</button>
           {notice && <p role="status" className="muted">{notice}</p>}
         </form>
       </div>

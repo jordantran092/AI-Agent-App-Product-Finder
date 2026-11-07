@@ -183,7 +183,9 @@ class AgentServiceTests {
         session.setPendingRequirements(requirements());
         session.transitionTo(ChatState.CONFIRMING);
         session.transitionTo(ChatState.SEARCHING);
-        session.setLastMatch(new LastMatch(51, 52, "Good fit."));
+        session.setLastMatch(new LastMatch(51, 52, "Good fit.",
+                new com.eecs3311.productfinder.domain.catalog.OfferSnapshot(
+                        "Retailer A", new BigDecimal("500.00"), ProductCondition.NEW)));
         session.transitionTo(ChatState.PRESENTING);
         Product product = new Product("Phone", "Orion", "OR-51", ProductCategory.SMARTPHONE,
                 "Test phone", null, Map.of());
@@ -268,7 +270,9 @@ class AgentServiceTests {
         session.setPendingRequirements(requirements());
         session.transitionTo(ChatState.CONFIRMING);
         session.transitionTo(ChatState.SEARCHING);
-        session.setLastMatch(new LastMatch(productId, listingId, "Good fit."));
+        session.setLastMatch(new LastMatch(productId, listingId, "Good fit.",
+                new com.eecs3311.productfinder.domain.catalog.OfferSnapshot(
+                        "Retailer A", new BigDecimal("500.00"), ProductCondition.NEW)));
         session.transitionTo(ChatState.PRESENTING);
         return session;
     }

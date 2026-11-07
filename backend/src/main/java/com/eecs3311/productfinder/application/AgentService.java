@@ -101,6 +101,18 @@ public class AgentService {
         }
     }
 
+    public ProductMatch presentedMatch(long userId, long productId) {
+        ChatSession session = sessionStore.getOrCreate(userId);
+        synchronized (session) {
+            session.requireState(ChatState.PRESENTING);
+            LastMatch match = Objects.requireNonNull(session.getLastMatch(), "presented match must exist");
+            if (match.productId() != productId) {
+                throw new IllegalArgumentException("Product is not the current recommendation");
+            }
+            return Objects.requireNonNull(loadLastMatch(session), "presented match must exist");
+        }
+    }
+
     public ChatFlowResponse confirmRequirements(long userId) {
         ChatSession session = sessionStore.getOrCreate(userId);
         synchronized (session) {
@@ -178,7 +190,7 @@ public class AgentService {
         if (!Objects.equals(listing.getProduct().getId(), product.getId())) {
             throw new IllegalStateException("The presented listing no longer matches the presented product");
         }
-        return new ProductMatch(product, listing, lastMatch.explanation());
+        return new ProductMatch(product, listing, lastMatch.explanation(), lastMatch.offer());
     }
 
     private ChatFlowResponse search(
@@ -214,7 +226,8 @@ public class AgentService {
         session.setLastMatch(new LastMatch(
                 match.product().getId(),
                 match.bestListing().getId(),
-                match.explanation()
+                match.explanation(),
+                match.offer()
         ));
         session.addMessage(MessageRole.ASSISTANT, match.explanation());
         session.transitionTo(ChatState.PRESENTING);

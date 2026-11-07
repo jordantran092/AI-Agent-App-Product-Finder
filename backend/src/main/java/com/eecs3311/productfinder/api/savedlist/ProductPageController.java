@@ -1,6 +1,7 @@
 package com.eecs3311.productfinder.api.savedlist;
 
 import com.eecs3311.productfinder.api.CurrentUserId;
+import com.eecs3311.productfinder.application.BestPriceResult;
 import com.eecs3311.productfinder.application.ProductPageResult;
 import com.eecs3311.productfinder.application.SavedProductWorkflowService;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,17 @@ public class ProductPageController {
     public ProductPageController(SavedProductWorkflowService workflowService, CurrentUserId currentUserId) {
         this.workflowService = workflowService;
         this.currentUserId = currentUserId;
+    }
+
+    @PostMapping("/{productId}/best-price")
+    public ResponseEntity<BestPriceResponse> bestPrice(@AuthenticationPrincipal UserDetails principal,
+                                                      @PathVariable long productId) {
+        BestPriceResult result = workflowService.bestPrice(currentUserId.resolve(principal), productId);
+        BestPriceResponse response = new BestPriceResponse(result.discontinued(), result.bestListing() == null
+                ? null : ProductPageResponse.OfferResponse.from(result.bestListing()));
+        return result.discontinued()
+                ? ResponseEntity.status(HttpStatus.GONE).body(response)
+                : ResponseEntity.ok(response);
     }
 
     @GetMapping("/{productId}")

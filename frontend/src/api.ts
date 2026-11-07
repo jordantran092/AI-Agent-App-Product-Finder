@@ -52,7 +52,7 @@ export type ProductPage = {
   product: Product | null;
   note: string | null;
   trustLabel: string | null;
-  bestOffer: Offer | null;
+  savedOffer: Offer | null;
 };
 export type SharedProduct = {
   name: string;
@@ -156,6 +156,11 @@ export const api = {
       method: "POST",
       body: { productName },
     }),
+  saveRecommendation: (productId: number) =>
+    request<AddProductResult>("/api/saved-list/recommendation", {
+      method: "POST",
+      body: { productId },
+    }),
   confirmSuggestedProduct: (productId: number) =>
     request<AddProductResult>(`/api/saved-list/items/${productId}`, {
       method: "POST",
@@ -167,11 +172,15 @@ export const api = {
       return await request<ProductPage>(`/api/products/${productId}`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 410) {
-        return { discontinued: true, product: null, note: null, trustLabel: null, bestOffer: null };
+        return { discontinued: true, product: null, note: null, trustLabel: null, savedOffer: null };
       }
       throw error;
     }
   },
+  bestPrice: (productId: number) =>
+    request<{ discontinued: boolean; bestOffer: Offer | null }>(`/api/products/${productId}/best-price`, {
+      method: "POST",
+    }),
   saveNote: (productId: number, note: string) =>
     request<{ note: string | null; sanitized: boolean; message: string }>(
       `/api/saved-list/items/${productId}/note`,

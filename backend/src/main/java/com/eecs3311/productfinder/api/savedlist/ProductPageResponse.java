@@ -3,11 +3,12 @@ package com.eecs3311.productfinder.api.savedlist;
 import com.eecs3311.productfinder.application.ProductPageResult;
 import com.eecs3311.productfinder.domain.catalog.Listing;
 import com.eecs3311.productfinder.domain.catalog.ProductCondition;
+import com.eecs3311.productfinder.domain.catalog.OfferSnapshot;
 
 import java.math.BigDecimal;
 
 public record ProductPageResponse(boolean discontinued, ProductSummaryResponse product, String note,
-                                  String trustLabel, OfferResponse bestOffer) {
+                                  String trustLabel, OfferResponse savedOffer) {
 
     public static ProductPageResponse discontinuedProduct() {
         return new ProductPageResponse(true, null, null, null, null);
@@ -22,13 +23,17 @@ public record ProductPageResponse(boolean discontinued, ProductSummaryResponse p
                 ProductSummaryResponse.from(result.product()),
                 result.savedItem().getNote(),
                 result.savedItem().getTrustLabel(),
-                result.bestListing() == null ? null : OfferResponse.from(result.bestListing())
+                result.savedItem().getSavedOffer() == null ? null : OfferResponse.from(result.savedItem().getSavedOffer())
         );
     }
 
     public record OfferResponse(String retailer, BigDecimal price, ProductCondition condition) {
         public static OfferResponse from(Listing listing) {
             return new OfferResponse(listing.getRetailer().getName(), listing.getPrice(), listing.getCondition());
+        }
+
+        public static OfferResponse from(OfferSnapshot offer) {
+            return new OfferResponse(offer.retailer(), offer.price(), offer.condition());
         }
     }
 }

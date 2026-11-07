@@ -1,6 +1,8 @@
 package com.eecs3311.productfinder.domain.savedlist;
 
 import com.eecs3311.productfinder.domain.catalog.Product;
+import com.eecs3311.productfinder.domain.catalog.OfferSnapshot;
+import com.eecs3311.productfinder.domain.catalog.ProductCondition;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -11,6 +13,9 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "saved_item", uniqueConstraints = {
@@ -35,6 +40,16 @@ public class SavedItem {
 
     @Column(name = "trust_label", length = 200)
     private String trustLabel;
+
+    @Column(name = "saved_offer_retailer", length = 120)
+    private String savedOfferRetailer;
+
+    @Column(name = "saved_offer_price", precision = 12, scale = 2)
+    private BigDecimal savedOfferPrice;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "saved_offer_condition", length = 40)
+    private ProductCondition savedOfferCondition;
 
     protected SavedItem() {
     }
@@ -62,6 +77,18 @@ public class SavedItem {
 
     public String getTrustLabel() {
         return trustLabel;
+    }
+
+    public OfferSnapshot getSavedOffer() {
+        return savedOfferRetailer == null ? null
+                : new OfferSnapshot(savedOfferRetailer, savedOfferPrice, savedOfferCondition);
+    }
+
+    public void setSavedOffer(OfferSnapshot offer) {
+        java.util.Objects.requireNonNull(offer, "offer must not be null");
+        savedOfferRetailer = offer.retailer();
+        savedOfferPrice = offer.price();
+        savedOfferCondition = offer.condition();
     }
 
     public void updateNote(String note) {

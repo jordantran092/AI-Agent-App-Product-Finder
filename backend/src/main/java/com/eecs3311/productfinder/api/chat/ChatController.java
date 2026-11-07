@@ -88,7 +88,7 @@ public class ChatController {
 
     private ChatProductResponse toProductResponse(ProductMatch match) {
         var product = match.product();
-        var listing = match.bestListing();
+        var offer = match.offer();
         return new ChatProductResponse(
                 product.getId(),
                 product.getName(),
@@ -98,7 +98,7 @@ public class ChatController {
                 product.getImageUrl(),
                 product.getCategory(),
                 product.getAttributes(),
-                new ChatOfferResponse(listing.getRetailer().getName(), listing.getPrice(), listing.getCondition()),
+                new ChatOfferResponse(offer.retailer(), offer.price(), offer.condition()),
                 match.explanation()
         );
     }

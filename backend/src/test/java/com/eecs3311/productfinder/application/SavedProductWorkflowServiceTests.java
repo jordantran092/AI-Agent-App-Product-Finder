@@ -2,6 +2,7 @@ package com.eecs3311.productfinder.application;
 
 import com.eecs3311.productfinder.domain.catalog.Product;
 import com.eecs3311.productfinder.domain.catalog.ProductCategory;
+import com.eecs3311.productfinder.domain.catalog.Listing;
 import com.eecs3311.productfinder.domain.savedlist.SavedItem;
 import com.eecs3311.productfinder.domain.savedlist.SavedItemNotFoundException;
 import com.eecs3311.productfinder.application.review.ReviewAnalyzer;
@@ -87,8 +88,9 @@ class SavedProductWorkflowServiceTests {
         when(savedItem.getTrustLabel()).thenReturn("Trustworthy Reviews");
         ReviewAnalyzer reviewAnalyzer = mock(ReviewAnalyzer.class);
         when(reviewAnalyzer.analyzeTrust(23L)).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
+        ProductService productService = mock(ProductService.class);
         SavedProductWorkflowService workflow = new SavedProductWorkflowService(
-                products, savedListService, mock(AgentService.class), mock(ProductService.class), reviewAnalyzer);
+                products, savedListService, mock(AgentService.class), productService, reviewAnalyzer);
 
         ProductAddResult result = workflow.addOrSuggest(5, " Orion 15 ");
 
@@ -96,6 +98,7 @@ class SavedProductWorkflowServiceTests {
         verify(products).findByNameIgnoreCaseOrderByIdAsc("Orion 15");
         verify(products, never()).findByModelIgnoreCase(anyString());
         verify(savedListService).addProductById(5, 23);
+        verify(productService, never()).bestPrice(anyLong(), anyLong());
     }
 
     @Test
@@ -140,7 +143,52 @@ class SavedProductWorkflowServiceTests {
 
         assertThatThrownBy(() -> workflow.productPage(9, 44))
                 .isInstanceOf(SavedItemNotFoundException.class);
+        assertThatThrownBy(() -> workflow.bestPrice(9, 44))
+                .isInstanceOf(SavedItemNotFoundException.class);
         verifyNoInteractions(productService);
+    }
+
+    @Test
+    void openingProductPageDoesNotComparePricesButExplicitRequestsDo() throws Exception {
+        Product product = product(22L);
+        SavedItem savedItem = mock(SavedItem.class);
+        when(savedItem.getTrustLabel()).thenReturn("Trustworthy Reviews");
+        SavedListService savedListService = mock(SavedListService.class);
+        when(savedListService.findSavedItem(5L, 22L)).thenReturn(Optional.of(savedItem));
+        ProductService productService = mock(ProductService.class);
+        when(productService.findById(22L)).thenReturn(product);
+        Listing listing = mock(Listing.class);
+        when(productService.bestPrice(5L, 22L)).thenReturn(Optional.of(listing), Optional.empty());
+        ReviewAnalyzer reviewAnalyzer = mock(ReviewAnalyzer.class);
+        when(reviewAnalyzer.analyzeTrust(22L)).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
+        SavedProductWorkflowService workflow = new SavedProductWorkflowService(
+                mock(ProductRepository.class), savedListService, mock(AgentService.class), productService,
+                reviewAnalyzer);
+
+        assertThat(workflow.productPage(5, 22).product()).isSameAs(product);
+        verify(productService, never()).bestPrice(anyLong(), anyLong());
+        assertThat(workflow.bestPrice(5, 22).bestListing()).isSameAs(listing);
+        assertThat(workflow.bestPrice(5, 22).bestListing()).isNull();
+        verify(productService, times(2)).bestPrice(5, 22);
+    }
+
+    @Test
+    void priceRequestRemovesDiscontinuedProductWithoutComparingPrices() throws Exception {
+        Product discontinued = product(32L);
+        Field field = Product.class.getDeclaredField("discontinued");
+        field.setAccessible(true);
+        field.setBoolean(discontinued, true);
+        SavedListService savedListService = mock(SavedListService.class);
+        when(savedListService.findSavedItem(7L, 32L)).thenReturn(Optional.of(mock(SavedItem.class)));
+        ProductService productService = mock(ProductService.class);
+        when(productService.findById(32L)).thenReturn(discontinued);
+        SavedProductWorkflowService workflow = new SavedProductWorkflowService(
+                mock(ProductRepository.class), savedListService, mock(AgentService.class), productService,
+                mock(ReviewAnalyzer.class));
+
+        assertThat(workflow.bestPrice(7, 32).discontinued()).isTrue();
+        verify(savedListService).removeProduct(7, 32);
+        verify(productService, never()).bestPrice(anyLong(), anyLong());
     }
 
     private static SavedProductWorkflowService workflow(SavedListService savedListService) {

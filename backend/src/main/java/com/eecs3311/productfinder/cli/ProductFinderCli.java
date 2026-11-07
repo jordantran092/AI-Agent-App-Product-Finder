@@ -300,12 +300,12 @@ public class ProductFinderCli implements CommandLineRunner {
         System.out.printf("%s — %s%n%s%n", product.getName(), product.getBrand(), product.getDescription());
         System.out.println("Specifications: " + product.getAttributes());
         System.out.println("Review trust: " + page.savedItem().getTrustLabel());
-        if (page.bestListing() == null) {
-            System.out.println("No retailer currently meets your settings.");
-        } else {
-            System.out.printf("Best price: %s at %s%n", page.bestListing().getPrice(),
-                    page.bestListing().getRetailer().getName());
+        var savedOffer = page.savedItem().getSavedOffer();
+        if (savedOffer != null) {
+            System.out.printf("Offer from recommendation (may have changed): %s at %s (%s)%n",
+                    savedOffer.price(), savedOffer.retailer(), savedOffer.condition());
         }
+        System.out.println("Use 'price " + id + "' to find the current best price.");
         System.out.println("Note: " + (page.savedItem().getNote() == null ? "(none)" : page.savedItem().getNote()));
     }
 

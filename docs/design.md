@@ -124,9 +124,13 @@ No avg price data. Then this step would not be taken into effect.
 
 This maintains a list of products that youʼve saved to keep track of so that you can navigate into that product to do different actions e.g. see the retailer with the best price. Users can add and remove products from the list.
 
+Adding a product and opening its saved product page do not calculate the best offer. The user requests that comparison separately through F05.
+
+When the user saves an F02 recommendation, the saved item also retains the retailer, price, and condition shown with that recommendation. Its product page displays this saved offer without a new comparison and indicates that it may have changed.
+
 - User Interaction — How does the user access or use this feature through the GUI?
 
-A list of products that you can select from, and it will direct you to a dedicated page for that product with more info about it such as the retailer with the best price
+A list of products that you can select from opens a dedicated page with product details and a separate action to find the best price.
 
 - Input — What information does the feature require?
 
@@ -156,7 +160,7 @@ For a product, the user can click a button and retrieve the retailer with the be
 
 User Interaction — How does the user access or use this feature through the GUI?
 
-The user clicks a button on the saved productʼs dedicated page in the app.
+The user clicks the "Find best price" button in the top-right corner of the product detail card on the saved productʼs dedicated page in the app.
 
 - Input — What information does the feature require?
 
@@ -172,11 +176,13 @@ The retailer with the best price, and the corresponding price
 
 - Expected Workflow — What happens when the feature is executed?
 
-Based on the chosen product, the software will search through DB data using deterministic software, comparing retailer prices, and then finally return the retailer with the best price currently.
+When the user selects "Find best price", the system compares the product's current eligible retailer offers and displays the lowest price and retailer. Selecting the button again performs a new comparison. Adding the product or opening its saved page does not perform this comparison. If the item was saved from an F02 recommendation, the page initially displays the offer recorded at recommendation time; this is a snapshot, not a guarantee of current pricing.
 
 - Error/Alternative Cases — What could go wrong and how should the system respond?
 
 A product model no longer exists/discontinued. The system would notify user and delete it.
+
+If no offers meet the user's settings, the system shows "No retailer currently meets your settings". Request errors are shown as errors rather than as an empty result.
 #### F06 — Share list to others
 - Description
 
@@ -420,6 +426,7 @@ classDiagram
         +confirmRequirements()
         +recommend()
         +suggestSimilar()
+        +presentedMatch(userId, productId)
     }
     class SessionStore {
         +load(userId)
@@ -453,6 +460,7 @@ classDiagram
     }
     class SavedListService {
         +addProduct(productName)
+        +saveRecommendationOffer(userId, productId, offer)
         +removeProduct(productId)
         +createShareLink()
         +saveNote(productId, note)
@@ -553,6 +561,14 @@ classDiagram
     class SavedItem {
         +note
         +trustLabel
+        +savedOfferRetailer
+        +savedOfferPrice
+        +savedOfferCondition
+    }
+    class OfferSnapshot {
+        +retailer
+        +price
+        +condition
     }
     class Product {
         +name
@@ -1029,11 +1045,11 @@ Show which retailer currently has the lowest price for a product.
 
 **Preconditions:**
 
-The product must exist in the database.
+The product must exist in the database. For a request from a saved product page, it must also belong to the signed-in user's saved list.
 
 **Trigger:**
 
-The user clicks "Find best price" on a product's page, or UC04 includes it.
+The user clicks "Find best price" on a saved product's page, or UC04 includes it. Opening the saved page or adding the product does not trigger a comparison.
 
 **Main Success Scenario:**
 
@@ -1045,11 +1061,15 @@ The system selects the listing with the lowest price.
 
 The system shows the retailer and the price.
 
+The user may click the button again to compare the current listings and profile settings.
+
 **Alternative/Exception Flows:**
 
 The product is discontinued, the system tells the user and removes it from their saved list.
 
 No listings remain after filtering, the system shows "No retailer currently meets your settings"
+
+The price request fails, the system reports the error without presenting it as an empty result.
 **Postconditions:**
  The best retailer and price are shown.
 
@@ -1131,6 +1151,10 @@ The system adds the product to the user's saved list.
 The system runs fake review detection for the product (includes UC09).
 
 The productʼs page will now have and show a trust label.
+
+Adding the product does not calculate its best retailer or price; the user can request that separately on the saved product page (UC05).
+
+If the user instead saves the current F02 recommendation, the system saves the exact recommended product and its displayed offer snapshot, even if the product is already in the list. The recommendation must belong to the authenticated user's current chat session.
 
 **Alternative/Exception Flows:**
 
@@ -1220,7 +1244,7 @@ The system deletes the saved item and its notes.
 **Trigger:**
  The user selects a product in their saved list.
 **Main Success Scenario:**
- The system loads the product details, image, specifications and trust label. The system displays the product page with actions for best price (UC05), summary (UC12) and notes (UC13).
+ The system loads the product details, image, specifications and trust label without comparing retailer prices. If an F02 offer was saved with the item, it displays that snapshot with a warning that it may have changed. The system displays the product page with actions for best price (UC05), summary (UC12) and notes (UC13).
 **Alternative/Exception Flows:**
 
 The product is discontinued and the system tells the user and removes it from the list.
@@ -1579,6 +1603,32 @@ sequenceDiagram
         UI-->>User: Show product and trust label
     end
 ```
+#### SD4a — Save an F02 recommendation
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Registered User
+    participant UI as ChatView
+    participant C as SavedListController
+    participant W as SavedProductWorkflowService
+    participant A as AgentService
+    participant S as SavedListService
+    participant DB as PostgreSQL
+    User->>UI: Save the presented product
+    UI->>C: POST /api/saved-list/recommendation (productId)
+    C->>W: saveRecommendation(userId, productId)
+    W->>A: presentedMatch(userId, productId)
+    A->>A: Require PRESENTING and matching current product
+    A-->>W: Product and presented offer snapshot
+    W->>S: Add exact product or retain existing item
+    W->>S: saveRecommendationOffer(userId, productId, offer)
+    S->>DB: Store retailer, price and condition
+    W-->>UI: Saved product result
+```
+
+The client sends only the product ID; the server obtains the original displayed offer from the authenticated user's in-memory chat session. An incorrect product ID or a session not presenting a recommendation is rejected. Saving an already-saved product replaces its stored recommendation snapshot.
+
 #### SD5 — View product page and find best price
 
 ```mermaid
@@ -1586,39 +1636,55 @@ sequenceDiagram
     autonumber
     actor User as Registered User
     participant UI as ProductPage
-    participant C as ProductController
+    participant C as ProductPageController
+    participant W as SavedProductWorkflowService
     participant S as ProductService
     participant P as ProfileService
     participant PC as PriceComparisonService
     participant R as ProductRepository
     participant List as SavedListService
     User->>UI: Open saved product
-    UI->>C: getProduct(productId)
-    C->>S: getProduct(productId)
+    UI->>C: GET /api/products/{productId}
+    C->>W: productPage(userId, productId)
+    W->>List: Check saved-item ownership
+    W->>S: findById(productId)
     S->>R: findById(productId)
     R-->>S: Product and details
+    S-->>W: Product
     alt Discontinued
-        S->>List: removeProduct(productId)
-        S-->>UI: Notify discontinued and remove from list
+        W->>List: removeProduct(userId, productId)
+        W-->>UI: Notify discontinued and remove from list
     else Available
-        S-->>UI: Details, image, specs, trust label
+        W-->>UI: Details, trust label and optional saved recommendation offer
         User->>UI: Select Find best price
-        UI->>C: bestPrice(productId)
-        C->>S: bestPrice(productId)
-        S->>P: get(userId)
-        P-->>S: Profile filters
-        S->>PC: bestListing(product, profile)
-        PC->>R: Load listings
-        R-->>PC: Listings
-        loop Each listing
-            PC->>PC: Exclude out-of-stock, unpriced, or filtered listing
-        end
-        alt Listing remains
-            PC-->>S: Lowest-priced listing
-            S-->>UI: Retailer and price
-        else No listing remains
-            PC-->>S: No valid listing
-            S-->>UI: “No retailer currently meets your settings”
+        UI->>C: POST /api/products/{productId}/best-price
+        C->>W: bestPrice(userId, productId)
+        W->>List: Check saved-item ownership
+        W->>S: findById(productId)
+        S->>R: Load current product and listings
+        R-->>S: Product and listings
+        S-->>W: Product
+        alt Product discontinued since page opened
+            W->>List: removeProduct(userId, productId)
+            W-->>UI: Notify discontinued and remove from list
+        else Available for comparison
+            W->>S: bestPrice(userId, productId)
+            S->>R: Load current product and listings
+            R-->>S: Product and listings
+            S->>P: get(userId)
+            P-->>S: Profile filters
+            S->>PC: bestListing(product, profile)
+            loop Each listing
+                PC->>PC: Exclude out-of-stock, unpriced, or filtered listing
+            end
+            alt Listing remains
+                PC-->>S: Lowest-priced listing
+                S-->>W: Retailer and price
+                W-->>UI: Retailer and price
+            else No listing remains
+                PC-->>S: No valid listing
+                W-->>UI: “No retailer currently meets your settings”
+            end
         end
     end
 ```
@@ -2048,6 +2114,8 @@ UC11 — View product page
 
 SD4 — Add product to saved list
 
+SD4a — Save an F02 recommendation
+
 SD5 — View product page
 
 SD8 — Remove product
@@ -2060,11 +2128,13 @@ SavedListController — receives add and remove requests.
 
 SavedListService — finds the product, prevents duplicates and updates the list.
 
+SavedProductWorkflowService — coordinates saving the exact presented recommendation and its offer.
+
 ProductRepository — looks up products by exact product name; the agent ranks candidates for approximate names.
 
-SavedList / SavedItem — the user's list and each saved product with its note and trust label.
+SavedList / SavedItem — the user's list and each saved product with its note, trust label and optional offer snapshot.
 
-AgentService — the Facade, suggestSimilar() handles approximate or mistyped product names with the AI.
+AgentService — the Facade, suggestSimilar() handles approximate or mistyped product names with the AI; presentedMatch() verifies the current recommendation.
 
 LLMClient — The interface every AI feature calls. At runtime it is RetryingLLMClient (Decorator) wrapping DeepSeekClient (Adapter), which sends requests through SharedLLMClient (Singleton) to DeepSeek.
 
@@ -2073,6 +2143,12 @@ LLMClient — The interface every AI feature calls. At runtime it is RetryingLLM
 SavedListController.add()
 
 SavedListService.addProduct()
+
+SavedProductWorkflowService.saveRecommendation()
+
+AgentService.presentedMatch()
+
+SavedListService.saveRecommendationOffer()
 
 ProductRepository.findByModelName()
 
@@ -2093,6 +2169,10 @@ SavedList.removeItem()
    - Execution:
 
       - SavedListController.add() calls SavedListService.addProduct() which finds the model with ProductRepository.findByModelName(), checks SavedList.contains() for duplicates and saves it with SavedList.addItem(). If the model is not found, AgentService.suggestSimilar() uses ProductRepository.findSimilar() and DeepSeek to suggest the model the user most likely meant. Removing goes through SavedListService.removeProduct() and SavedList.removeItem().
+
+      - For an F02 recommendation, `POST /api/saved-list/recommendation` sends the product ID rather than a name or client-supplied price. SavedProductWorkflowService verifies the current user's presented match through AgentService, adds that exact product if necessary, and stores the original offer snapshot even if the product was already saved. The snapshot is captured when the recommendation is presented, so later listing changes do not change the recorded offer.
+
+The optional snapshot is persisted on SavedItem as retailer, price and condition. These fields must be either all absent or all present, with a non-negative price. Flyway migration V5 is reserved and V6 adds these columns and their consistency constraint. A database that ran a different development version of V5 needs its migration history and schema reconciled before upgrading; repairing a checksum alone does not apply missing schema changes.
 #### F05 — Compare Prices Among Retailers for a Product
 UC05 — Compare retailer prices
 
@@ -2106,7 +2186,9 @@ SD5 — View product page and find best price
 
 ProductPage — shows the "Find best price" button and the result.
 
-ProductController — receives the request and delegates to ProductService.
+ProductPageController — receives the saved-product request and delegates to SavedProductWorkflowService.
+
+SavedProductWorkflowService — checks saved-item ownership and discontinued status before requesting a comparison.
 
 ProductService — reads the profile and asks PriceComparisonService for the best listing. The CLI calls it too.
 
@@ -2122,7 +2204,9 @@ Product / Listing / Retailer — the product, each retailer's offer, and the ret
 
 ProductPage.findBestPrice()
 
-ProductController.bestPrice()
+ProductPageController.bestPrice()
+
+SavedProductWorkflowService.bestPrice()
 
 ProductService.bestPrice()
 
@@ -2134,7 +2218,7 @@ ProductRepository.findById()
 
 Execution:
 
-ProductPage.findBestPrice() calls ProductController.bestPrice(), which delegates to ProductService.bestPrice() to pass the user's profile to PriceComparisonService.bestListing(). The service loads the listings with ProductRepository.findById(), drops any that are out of stock, unpriced or excluded by the profile, and returns the lowest-priced Listing and its Retailer.
+ProductPage.findBestPrice() sends `POST /api/products/{productId}/best-price` when the user clicks the button. ProductPageController checks that the product is saved by the user through SavedProductWorkflowService, which handles discontinued products and delegates to ProductService.bestPrice(). The service passes the user's profile to PriceComparisonService.bestListing(), filters the current listings, and returns the lowest-priced eligible listing and its retailer, or no offer if none qualify. The button can be used again to recompute the result. Opening the product page does not calculate an offer; the response includes an optional `savedOffer` from F02, labeled as potentially changed. A fresh comparison replaces the displayed result but does not update the stored snapshot; reopening the page shows that original snapshot again. Agent recommendations and public shared-list views retain their existing price comparisons.
 #### F06 — Share List to Others
 - Related Use Case:
 

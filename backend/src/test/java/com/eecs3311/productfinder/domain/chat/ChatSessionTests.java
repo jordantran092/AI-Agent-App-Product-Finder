@@ -1,6 +1,8 @@
 package com.eecs3311.productfinder.domain.chat;
 
 import com.eecs3311.productfinder.domain.catalog.ProductCategory;
+import com.eecs3311.productfinder.domain.catalog.ProductCondition;
+import com.eecs3311.productfinder.domain.catalog.OfferSnapshot;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -34,7 +36,8 @@ class ChatSessionTests {
                 .isThrownBy(() -> session.transitionTo(ChatState.PRESENTING));
 
         session.transitionTo(ChatState.SEARCHING);
-        session.setLastMatch(new LastMatch(1, 2, "Matches the requested specifications."));
+        session.setLastMatch(new LastMatch(1, 2, "Matches the requested specifications.",
+                new OfferSnapshot("Retailer", BigDecimal.TEN, ProductCondition.NEW)));
         session.transitionTo(ChatState.PRESENTING);
 
         assertThat(session.getState()).isEqualTo(ChatState.PRESENTING);

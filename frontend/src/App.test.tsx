@@ -21,9 +21,11 @@ vi.mock("./api", async (importOriginal) => {
       buyOrWait: vi.fn(),
       savedList: vi.fn(),
       addProduct: vi.fn(),
+      saveRecommendation: vi.fn(),
       confirmSuggestedProduct: vi.fn(),
       removeProduct: vi.fn(),
       productPage: vi.fn(),
+      bestPrice: vi.fn(),
       saveNote: vi.fn(),
       summarize: vi.fn(),
       profile: vi.fn(),
@@ -265,6 +267,39 @@ describe("Product Finder user flows", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("DeepSeek is temporarily unavailable");
   });
 
+  it("saves the agent recommendation and displays its stored offer without finding a price again", async () => {
+    const user = userEvent.setup();
+    const offer = { retailer: "Amazon.ca", price: 1149.99, condition: "NEW" };
+    vi.mocked(api.chat).mockResolvedValue({
+      ...gatheringChat, state: "PRESENTING",
+      match: { productId: product.id, ...product, bestOffer: offer, explanation: "A good fit." },
+    });
+    vi.mocked(api.saveRecommendation).mockResolvedValue({
+      status: "ADDED", product, trustLabel: "Trustworthy Reviews", message: "Product added",
+    });
+    vi.mocked(api.savedList).mockResolvedValue({ items: [savedItem] });
+    vi.mocked(api.productPage).mockResolvedValue({
+      discontinued: false, product, note: null, trustLabel: "Trustworthy Reviews", savedOffer: offer,
+    });
+
+    renderSignedIn();
+    await screen.findByText("BEST MATCH");
+    await user.click(screen.getByRole("button", { name: "Save product" }));
+    await waitFor(() => expect(api.saveRecommendation).toHaveBeenCalledWith(product.id));
+    expect(api.addProduct).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "View details" }));
+    const displayedOffer = await screen.findByText(/Amazon\.ca · .*CA\$1,149\.99 \(New\)/);
+    const offerLine = displayedOffer.closest(".offer-line.saved-offer-line");
+    const priceButton = screen.getByRole("button", { name: "Find best price" });
+    expect(offerLine).toBeInTheDocument();
+    expect(priceButton).toHaveClass("saved-offer-button");
+    expect(priceButton.closest(".detail-header")?.parentElement).toHaveClass("detail-card");
+    expect(priceButton.nextElementSibling).toHaveClass("product-summary");
+    expect(offerLine).not.toContainElement(priceButton);
+    expect(screen.getByText("Offer from recommendation (may have changed)")).toBeInTheDocument();
+    expect(api.bestPrice).not.toHaveBeenCalled();
+  });
+
   it("uses buy/wait advice when history is missing", async () => {
     const user = userEvent.setup();
     vi.mocked(api.chat).mockResolvedValue({
@@ -324,8 +359,8 @@ describe("Product Finder user flows", () => {
     renderSignedIn();
     await screen.findByText("What are you looking for?");
     await user.click(screen.getByRole("button", { name: "Saved list" }));
-    expect(screen.getByPlaceholderText("e.g. iPhone 15")).toBeInTheDocument();
-    await user.type(await screen.findByLabelText("Add a product by name"), "iPhone 15");
+    expect(screen.getByPlaceholderText("Enter a product model name")).toBeInTheDocument();
+    await user.type(await screen.findByLabelText("Add a product"), "iPhone 15");
     await user.click(screen.getByRole("button", { name: "Find product" }));
     expect(api.addProduct).toHaveBeenCalledWith("iPhone 15");
     expect(await screen.findByText("DID YOU MEAN?")).toBeInTheDocument();
@@ -353,7 +388,7 @@ describe("Product Finder user flows", () => {
     renderSignedIn();
     await screen.findByText("What are you looking for?");
     await user.click(screen.getByRole("button", { name: "Saved list" }));
-    await user.type(await screen.findByLabelText("Add a product by name"), "Galaxy S25");
+    await user.type(await screen.findByLabelText("Add a product"), "Galaxy S25");
     await user.click(screen.getByRole("button", { name: "Find product" }));
     await screen.findByText("DID YOU MEAN?");
     await user.click(screen.getByRole("button", { name: "No" }));
@@ -376,7 +411,7 @@ describe("Product Finder user flows", () => {
     renderSignedIn();
     await screen.findByText("What are you looking for?");
     await user.click(screen.getByRole("button", { name: "Saved list" }));
-    await user.type(await screen.findByLabelText("Add a product by name"), "iPhone 15");
+    await user.type(await screen.findByLabelText("Add a product"), "iPhone 15");
     await user.click(screen.getByRole("button", { name: "Find product" }));
 
     expect(await screen.findByRole("status"))
@@ -392,6 +427,10 @@ describe("Product Finder user flows", () => {
       product,
       note: "Check battery",
       trustLabel: "Trustworthy Reviews",
+      savedOffer: null,
+    });
+    vi.mocked(api.bestPrice).mockResolvedValue({
+      discontinued: false,
       bestOffer: { retailer: "Amazon.ca", price: 1149.99, condition: "NEW" },
     });
     vi.mocked(api.summarize).mockResolvedValue({ summary: "Reviewers praise the display." });
@@ -407,7 +446,17 @@ describe("Product Finder user flows", () => {
     await user.click(await screen.findByRole("button", { name: "View details" }));
     expect(await screen.findByText("Review trust: Trustworthy Reviews")).toBeInTheDocument();
     expect(screen.queryByText("Model SM-S931W-128GB")).not.toBeInTheDocument();
-    expect(screen.getByText(/Amazon\.ca · .*CA\$1,149\.99 \(New\)/)).toBeInTheDocument();
+    expect(api.bestPrice).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Amazon\.ca · .*CA\$1,149\.99/)).not.toBeInTheDocument();
+    const priceButton = screen.getByRole("button", { name: "Find best price" });
+    expect(priceButton.closest(".detail-header")?.parentElement).toHaveClass("detail-card");
+    await user.click(priceButton);
+    expect(await screen.findByText(/Amazon\.ca · .*CA\$1,149\.99 \(New\)/)).toBeInTheDocument();
+    expect(api.bestPrice).toHaveBeenCalledWith(product.id);
+    vi.mocked(api.bestPrice).mockResolvedValue({ discontinued: false, bestOffer: null });
+    await user.click(screen.getByRole("button", { name: "Find best price" }));
+    expect(await screen.findByText("No retailer currently meets your settings")).toBeInTheDocument();
+    expect(api.bestPrice).toHaveBeenCalledTimes(2);
 
     await user.click(screen.getByRole("button", { name: "Summarize" }));
     expect(await screen.findByText("Reviewers praise the display.")).toBeInTheDocument();
@@ -416,6 +465,40 @@ describe("Product Finder user flows", () => {
     await user.type(note, "Check battery before buying");
     await user.click(screen.getByRole("button", { name: "Save note" }));
     await waitFor(() => expect(api.saveNote).toHaveBeenCalledWith(product.id, "Check battery before buying"));
+  });
+
+  it("reports price request errors instead of showing an unavailable offer", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.savedList).mockResolvedValue({ items: [savedItem] });
+    vi.mocked(api.productPage).mockResolvedValue({
+      discontinued: false, product, note: null, trustLabel: "Trustworthy Reviews", savedOffer: null,
+    });
+    vi.mocked(api.bestPrice).mockRejectedValue(new ApiError("Price comparison failed", 500));
+
+    renderSignedIn();
+    await screen.findByText("What are you looking for?");
+    await user.click(screen.getByRole("button", { name: "Saved list" }));
+    await user.click(await screen.findByRole("button", { name: "View details" }));
+    await user.click(await screen.findByRole("button", { name: "Find best price" }));
+    expect(await screen.findByText("Price comparison failed")).toBeInTheDocument();
+    expect(screen.queryByText("No retailer currently meets your settings")).not.toBeInTheDocument();
+  });
+
+  it("shows discontinued notice when a product becomes unavailable before price comparison", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.savedList).mockResolvedValue({ items: [savedItem] });
+    vi.mocked(api.productPage).mockResolvedValue({
+      discontinued: false, product, note: null, trustLabel: "Trustworthy Reviews", savedOffer: null,
+    });
+    vi.mocked(api.bestPrice).mockRejectedValue(new ApiError("Request failed (410)", 410));
+
+    renderSignedIn();
+    await screen.findByText("What are you looking for?");
+    await user.click(screen.getByRole("button", { name: "Saved list" }));
+    await user.click(await screen.findByRole("button", { name: "View details" }));
+    await user.click(await screen.findByRole("button", { name: "Find best price" }));
+    expect(await screen.findByText("This product has been discontinued and was removed from your saved list."))
+      .toBeInTheDocument();
   });
 
   it("copies a share link and renders a shared list without authentication", async () => {

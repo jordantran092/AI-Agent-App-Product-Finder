@@ -1,6 +1,7 @@
 package com.eecs3311.productfinder.application;
 
 import com.eecs3311.productfinder.domain.catalog.Product;
+import com.eecs3311.productfinder.domain.catalog.OfferSnapshot;
 import com.eecs3311.productfinder.domain.catalog.ProductNotFoundException;
 import com.eecs3311.productfinder.domain.savedlist.SavedItem;
 import com.eecs3311.productfinder.domain.savedlist.SavedList;
@@ -122,6 +123,14 @@ public class SavedListService {
         item.setTrustLabel(trustLabel);
         savedListRepository.flush();
         return item;
+    }
+
+    @Transactional
+    public void saveRecommendationOffer(long userId, long productId, OfferSnapshot offer) {
+        SavedItem item = findSavedItem(userId, productId)
+                .orElseThrow(() -> new SavedItemNotFoundException(productId));
+        item.setSavedOffer(offer);
+        savedListRepository.flush();
     }
 
     @Transactional(readOnly = true)

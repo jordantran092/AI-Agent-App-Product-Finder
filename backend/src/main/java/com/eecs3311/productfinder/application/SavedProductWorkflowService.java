@@ -59,6 +59,13 @@ public class SavedProductWorkflowService {
         return addKnownProduct(userId, product);
     }
 
+    public ProductAddResult saveRecommendation(long userId, long productId) {
+        ProductMatch match = agentService.presentedMatch(userId, productId);
+        ProductAddResult result = addKnownProduct(userId, match.product());
+        savedListService.saveRecommendationOffer(userId, productId, match.offer());
+        return result;
+    }
+
     public ProductPageResult productPage(long userId, long productId) {
         SavedItem savedItem = savedListService.findSavedItem(userId, productId)
                 .orElseThrow(() -> new SavedItemNotFoundException(productId));
@@ -68,8 +75,18 @@ public class SavedProductWorkflowService {
             return ProductPageResult.discontinuedResult();
         }
         savedItem = refreshTrustLabel(userId, productId, savedItem);
-        return new ProductPageResult(false, product, savedItem, productService.bestPrice(userId, productId)
-                .orElse(null));
+        return new ProductPageResult(false, product, savedItem);
+    }
+
+    public BestPriceResult bestPrice(long userId, long productId) {
+        savedListService.findSavedItem(userId, productId)
+                .orElseThrow(() -> new SavedItemNotFoundException(productId));
+        Product product = productService.findById(productId);
+        if (product.isDiscontinued()) {
+            savedListService.removeProduct(userId, productId);
+            return new BestPriceResult(true, null);
+        }
+        return new BestPriceResult(false, productService.bestPrice(userId, productId).orElse(null));
     }
 
     public ReviewSummaryResult summarize(long userId, long productId) {

@@ -8,6 +8,11 @@ import com.eecs3311.productfinder.domain.user.UserProfile;
 import com.eecs3311.productfinder.application.ProfileService;
 import com.eecs3311.productfinder.application.ProductService;
 import com.eecs3311.productfinder.application.SavedListService;
+import com.eecs3311.productfinder.application.SessionStore;
+import com.eecs3311.productfinder.domain.catalog.OfferSnapshot;
+import com.eecs3311.productfinder.domain.chat.ChatState;
+import com.eecs3311.productfinder.domain.chat.LastMatch;
+import com.eecs3311.productfinder.domain.chat.Requirements;
 import com.eecs3311.productfinder.application.review.ReviewAnalyzer;
 import com.eecs3311.productfinder.application.review.ReviewSummaryResult;
 import com.eecs3311.productfinder.application.review.ReviewTrustResult;
@@ -30,6 +35,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
 import java.util.Set;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
@@ -103,10 +110,63 @@ class PostgresRepositoryIntegrationTests {
     @Autowired
     private SavedListService savedListService;
 
+    @Autowired
+    private SessionStore sessionStore;
+
     @BeforeEach
     void stubReviewAnalysis() {
         when(reviewAnalyzer.analyzeTrust(anyLong())).thenReturn(new ReviewTrustResult("Trustworthy Reviews"));
         when(reviewAnalyzer.summarize(anyLong())).thenReturn(new ReviewSummaryResult("A capable everyday phone."));
+    }
+
+    @Test
+    void recommendationSavePersistsPresentedOfferWithoutRecomputingIt() throws Exception {
+        String username = "recommendation-owner-" + System.nanoTime();
+        MockHttpSession ownerSession = createLoggedInUser(username);
+        long userId = userRepository.findByUsernameIgnoreCase(username).orElseThrow().getId();
+        var product = productRepository.findByModelIgnoreCase("SM-S931W-128GB").orElseThrow();
+        var listing = listingRepository.findAll().stream()
+                .filter(item -> item.getProduct().getId().equals(product.getId()))
+                .findFirst().orElseThrow();
+        var chat = sessionStore.getOrCreate(userId);
+        chat.setPendingRequirements(new Requirements(ProductCategory.SMARTPHONE, null,
+                List.of(), List.of(), List.of(), null, Map.of()));
+        chat.transitionTo(ChatState.CONFIRMING);
+        chat.transitionTo(ChatState.SEARCHING);
+        chat.setLastMatch(new LastMatch(product.getId(), listing.getId(), "A good match.",
+                new OfferSnapshot("Original retailer", new BigDecimal("777.00"), ProductCondition.USED)));
+        chat.transitionTo(ChatState.PRESENTING);
+        sessionStore.save(chat);
+
+        mockMvc.perform(get("/api/chat").session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.match.bestOffer.price").value(777.00))
+                .andExpect(jsonPath("$.match.bestOffer.retailer").value("Original retailer"));
+        mockMvc.perform(post("/api/saved-list/recommendation").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":%d}".formatted(product.getId() + 1)))
+                .andExpect(status().is4xxClientError());
+        mockMvc.perform(post("/api/saved-list/recommendation").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":%d}".formatted(product.getId())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.product.id").value(product.getId()));
+        mockMvc.perform(post("/api/saved-list/recommendation").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":%d}".formatted(product.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ALREADY_SAVED"));
+        mockMvc.perform(get("/api/products/{productId}", product.getId()).session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.savedOffer.retailer").value("Original retailer"))
+                .andExpect(jsonPath("$.savedOffer.price").value(777.00))
+                .andExpect(jsonPath("$.savedOffer.condition").value("USED"));
+
+        MockHttpSession otherSession = createLoggedInUser("other-recommendation-" + System.nanoTime());
+        mockMvc.perform(post("/api/saved-list/recommendation").session(otherSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"productId\":%d}".formatted(product.getId())))
+                .andExpect(status().is4xxClientError());
     }
 
     @Test
@@ -260,7 +320,19 @@ class PostgresRepositoryIntegrationTests {
                 .andExpect(jsonPath("$.product.model").value("SM-S931W-128GB"))
                 .andExpect(jsonPath("$.note").value("keep this"))
                 .andExpect(jsonPath("$.trustLabel").value("Trustworthy Reviews"))
+                .andExpect(jsonPath("$.bestOffer").doesNotExist());
+        mockMvc.perform(post("/api/products/{productId}/best-price", productId)
+                        .session(ownerSession).with(csrf()))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bestOffer.price").value(1149.99));
+        mockMvc.perform(put("/api/profile").session(ownerSession).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"budget\":100.00,\"excludedBrands\":[],\"conditions\":[\"NEW\"]}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/products/{productId}/best-price", productId)
+                        .session(ownerSession).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bestOffer").isEmpty());
         mockMvc.perform(post("/api/products/{productId}/summary", productId)
                         .session(ownerSession).with(csrf()))
                 .andExpect(status().isOk())
@@ -268,6 +340,9 @@ class PostgresRepositoryIntegrationTests {
 
         MockHttpSession otherSession = createLoggedInUser("saved-api-other-" + System.nanoTime());
         mockMvc.perform(get("/api/products/{productId}", productId).session(otherSession))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/products/{productId}/best-price", productId)
+                        .session(otherSession).with(csrf()))
                 .andExpect(status().isNotFound());
         mockMvc.perform(post("/api/products/{productId}/summary", productId)
                         .session(otherSession).with(csrf()))

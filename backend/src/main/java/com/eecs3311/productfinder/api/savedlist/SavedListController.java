@@ -49,6 +49,12 @@ public class SavedListController {
         return addResponse(workflowService.confirmAdd(currentUserId.resolve(principal), productId));
     }
 
+    @PostMapping("/recommendation")
+    public ResponseEntity<AddProductResponse> saveRecommendation(@AuthenticationPrincipal UserDetails principal,
+                                                                @Valid @RequestBody SaveRecommendationRequest request) {
+        return addResponse(workflowService.saveRecommendation(currentUserId.resolve(principal), request.productId()));
+    }
+
     @DeleteMapping("/items/{productId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void remove(@AuthenticationPrincipal UserDetails principal, @PathVariable long productId) {
