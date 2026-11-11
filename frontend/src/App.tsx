@@ -349,7 +349,7 @@ function ChatWorkspace({
                 event.preventDefault();
                 if (!busy && text.trim()) event.currentTarget.form?.requestSubmit();
               }}
-              placeholder="For example: a phone under $700 with a good camera and at least 256 GB storage" />
+              placeholder="A samsung phone under $1000, ideally at least 128gb" />
             <button className="button button-primary" disabled={busy || !text.trim()}>
               {busy ? "Working…" : "Send"}
             </button>
